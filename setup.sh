@@ -23,8 +23,17 @@ else
   echo "[1/5] Node.js $(node -v) already installed — skipping."
 fi
 
-# ── Install nginx if missing ───────────────────────────────────────────────────
-if ! command -v nginx &>/dev/null; then
+# ── Check for port 80 conflict (e.g. Nginx Proxy Manager in Docker) ───────────
+PORT80_IN_USE=false
+if ss -tlnp 2>/dev/null | grep -q ':80 ' || netstat -tlnp 2>/dev/null | grep -q ':80 '; then
+  PORT80_IN_USE=true
+fi
+
+# ── Install nginx if missing and port 80 is free ──────────────────────────────
+if [ "$PORT80_IN_USE" = "true" ]; then
+  echo "[2/5] Port 80 already in use (Nginx Proxy Manager?) — skipping nginx setup."
+  echo "      → Point your proxy to http://127.0.0.1:3000 to expose PulseWatch."
+elif ! command -v nginx &>/dev/null; then
   echo "[2/5] Installing nginx..."
   $PKG install -y nginx
 else
@@ -91,12 +100,18 @@ if (!cfg.credentials || cfg.credentials.length === 0) {
 " 2>/dev/null || true
 
 # ── nginx reverse proxy ────────────────────────────────────────────────────────
-echo "[5/5] Configuring nginx..."
+if [ "$PORT80_IN_USE" = "true" ]; then
+  echo "[5/5] Skipping nginx config — port 80 is already in use."
+  echo "      → Add a Proxy Host in Nginx Proxy Manager:"
+  echo "        Domain: your-domain.com"
+  echo "        Forward: http://127.0.0.1:3000"
+else
+  echo "[5/5] Configuring nginx..."
 
-NGINX_CONF=/etc/nginx/sites-available/pulsewatch
-[ -d /etc/nginx/sites-available ] || NGINX_CONF=/etc/nginx/conf.d/pulsewatch.conf
+  NGINX_CONF=/etc/nginx/sites-available/pulsewatch
+  [ -d /etc/nginx/sites-available ] || NGINX_CONF=/etc/nginx/conf.d/pulsewatch.conf
 
-cat > "$NGINX_CONF" <<'NGINX'
+  cat > "$NGINX_CONF" <<'NGINX'
 server {
     listen 80;
     server_name _;
@@ -112,14 +127,13 @@ server {
 }
 NGINX
 
-# Enable the site on Debian/Ubuntu
-if [ -d /etc/nginx/sites-enabled ]; then
-  ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/pulsewatch
-  # Remove default site if present to avoid port conflict
-  rm -f /etc/nginx/sites-enabled/default
-fi
+  if [ -d /etc/nginx/sites-enabled ]; then
+    ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/pulsewatch
+    rm -f /etc/nginx/sites-enabled/default
+  fi
 
-nginx -t && systemctl restart nginx
+  nginx -t && systemctl restart nginx
+fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 SERVER_IP=$(hostname -I | awk '{print $1}')
