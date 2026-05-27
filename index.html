@@ -690,6 +690,10 @@
 
   .card-maint-btn:hover { background: rgba(99,102,241,0.25); border-color: rgba(99,102,241,0.5); color: #c7d2fe; }
 
+  /* Hide admin-only elements unless body has .is-admin */
+  .admin-only { display: none !important; }
+  body.is-admin .admin-only { display: flex !important; }
+
   /* ── SSL BADGE ── */
   .ssl-row {
     display: flex;
@@ -1222,7 +1226,7 @@
   <div class="monitors-grid" id="monitorsGrid"></div>
 
   <!-- Maintenance Schedule (admin only) -->
-  <div class="maint-section" id="maintSection" style="display:none">
+  <div class="maint-section admin-only" id="maintSection">
     <div class="section-header">
       <div class="section-title">Maintenance Windows</div>
       <button class="add-maint-btn" onclick="openMaintModal()">＋ Schedule</button>
@@ -1347,6 +1351,8 @@ function setUserBadge(user) {
   const chip = document.getElementById('roleChip');
   chip.textContent = user.role;
   chip.className = `role-chip role-${user.role}`;
+  // Apply role class to body so CSS can show/hide admin-only elements
+  document.body.classList.toggle('is-admin', user.role === 'admin');
 }
 
 function toggleUserMenu() {
@@ -1518,7 +1524,7 @@ function renderCard(d) {
       </div>
       <div style="display:flex;align-items:center;gap:6px">
         <div class="status-badge badge-${isPending ? 'up' : d.status}">${isPending ? 'checking' : d.status}</div>
-        ${currentUser?.role === 'admin' ? `<button class="card-maint-btn" onclick="openMaintModal(${d.id});event.stopPropagation()">🔧 Schedule</button>` : ''}
+        <button class="card-maint-btn admin-only" onclick="openMaintModal(${d.id});event.stopPropagation()">🔧 Schedule</button>
       </div>
     </div>
 
@@ -1890,10 +1896,7 @@ function renderMaintBanner() {
 }
 
 function renderMaintSection() {
-  if (currentUser?.role !== 'admin') return;
-  const section = document.getElementById('maintSection');
-  const list    = document.getElementById('maintWindowsList');
-  section.style.display = 'block';
+  const list = document.getElementById('maintWindowsList');
 
   if (!maintWindows.length) {
     list.innerHTML = `<div class="incident-item"><span style="color:var(--muted);font-size:0.8rem">No maintenance windows scheduled.</span></div>`;
