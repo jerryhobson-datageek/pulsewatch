@@ -146,15 +146,16 @@ function isHTTPS(svc) {
 const state = {};
 for (const svc of config.services) {
   state[svc.id] = {
-    id:          svc.id,
-    name:        svc.name,
-    url:         svc.url,
-    type:        svc.type || 'HTTP',
-    status:      'pending',
-    rt:          null,
-    history:     [],
-    lastCheck:   null,
-    maintenance: null,
+    id:                svc.id,
+    name:              svc.name,
+    url:               svc.url,
+    type:              svc.type || 'HTTP',
+    status:            'pending',
+    rt:                null,
+    history:           [],
+    lastCheck:         null,
+    maintenance:       null,
+    degradedThreshold: svc.degradedThreshold || null,
     ssl: isHTTPS(svc)
       ? { status: 'pending', daysLeft: null, expiry: null }
       : null,

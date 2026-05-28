@@ -7,6 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   :root {
+    /* ── Dark theme (default) ── */
     --bg: #080b14;
     --surface: rgba(255,255,255,0.04);
     --surface-hover: rgba(255,255,255,0.08);
@@ -23,6 +24,33 @@
     --purple: #a855f7;
     --accent: #6366f1;
     --accent-glow: rgba(99,102,241,0.4);
+
+    /* Theme-dependent compound colors */
+    --header-bg: rgba(8,11,20,0.8);
+    --modal-bg:  #0f1626;
+    --toast-bg:  rgba(15,20,35,0.95);
+    --blob-1:    rgba(99,102,241,0.12);
+    --blob-2:    rgba(34,211,160,0.08);
+  }
+
+  :root[data-theme="light"] {
+    --bg: #f1f5f9;
+    --surface: rgba(255,255,255,0.7);
+    --surface-hover: rgba(255,255,255,0.95);
+    --border: rgba(0,0,0,0.08);
+    --text: #1e293b;
+    --muted: #64748b;
+    --green: #059669;
+    --red: #dc2626;
+    --yellow: #d97706;
+    --accent: #4f46e5;
+    --purple: #7c3aed;
+
+    --header-bg: rgba(255,255,255,0.85);
+    --modal-bg:  #ffffff;
+    --toast-bg:  rgba(255,255,255,0.97);
+    --blob-1:    rgba(99,102,241,0.08);
+    --blob-2:    rgba(5,150,105,0.06);
   }
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -43,7 +71,7 @@
     left: -10%;
     width: 600px;
     height: 600px;
-    background: radial-gradient(circle, rgba(99,102,241,0.12) 0%, transparent 70%);
+    background: radial-gradient(circle, var(--blob-1) 0%, transparent 70%);
     pointer-events: none;
     z-index: 0;
   }
@@ -54,7 +82,7 @@
     right: -5%;
     width: 500px;
     height: 500px;
-    background: radial-gradient(circle, rgba(34,211,160,0.08) 0%, transparent 70%);
+    background: radial-gradient(circle, var(--blob-2) 0%, transparent 70%);
     pointer-events: none;
     z-index: 0;
   }
@@ -70,7 +98,7 @@
     top: 0;
     z-index: 100;
     backdrop-filter: blur(20px);
-    background: rgba(8,11,20,0.8);
+    background: var(--header-bg);
     border-bottom: 1px solid var(--border);
     padding: 0 2rem;
     height: 64px;
@@ -510,7 +538,7 @@
   }
 
   .toast {
-    background: rgba(15,20,35,0.95);
+    background: var(--toast-bg);
     border: 1px solid var(--border);
     border-radius: 12px;
     padding: 10px 16px;
@@ -890,6 +918,27 @@
 
   .login-error.show { display: block; }
 
+  /* ── THEME TOGGLE ── */
+  .theme-toggle {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--text);
+    transition: background 0.15s, transform 0.15s;
+    padding: 0;
+    font-family: inherit;
+  }
+
+  .theme-toggle:hover  { background: var(--surface-hover); }
+  .theme-toggle:active { transform: scale(0.92); }
+
   /* ── USER BADGE (header) ── */
   .user-badge {
     display: flex;
@@ -939,7 +988,7 @@
     position: absolute;
     top: calc(100% + 8px);
     right: 0;
-    background: #0f1626;
+    background: var(--modal-bg);
     border: 1px solid var(--border);
     border-radius: 12px;
     padding: 6px;
@@ -982,7 +1031,7 @@
     position: fixed;
     inset: 0;
     z-index: 900;
-    background: rgba(8,11,20,0.8);
+    background: rgba(15,23,42,0.55);
     backdrop-filter: blur(6px);
     display: flex;
     align-items: center;
@@ -998,7 +1047,7 @@
   }
 
   .modal {
-    background: #0f1626;
+    background: var(--modal-bg);
     border: 1px solid var(--border);
     border-radius: 20px;
     padding: 2rem;
@@ -1169,6 +1218,9 @@
       Live
     </div>
     <div class="header-time" id="headerTime"></div>
+    <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle theme">
+      <span id="themeIcon">🌙</span>
+    </button>
     <div class="user-badge" id="userBadge" onclick="toggleUserMenu()" style="display:none">
       <div class="user-avatar" id="userAvatar"></div>
       <span class="user-name" id="userName"></span>
@@ -1250,6 +1302,32 @@
 <div class="toast-container" id="toastContainer"></div>
 
 <script>
+// ─── THEME ────────────────────────────────────────────────────────────────────
+
+const THEME_KEY = 'pw_theme';
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const icon = document.getElementById('themeIcon');
+  if (icon) icon.textContent = theme === 'light' ? '☀️' : '🌙';
+  // Update chart text/grid colors so they're readable in both themes
+  if (window.Chart) {
+    Chart.defaults.color = theme === 'light' ? '#475569' : '#94a3b8';
+  }
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  const next    = current === 'dark' ? 'light' : 'dark';
+  localStorage.setItem(THEME_KEY, next);
+  applyTheme(next);
+  // Rebuild charts so gradients pick up new colors
+  if (initialized) renderAll();
+}
+
+// Apply saved theme as early as possible (before render)
+applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
+
 // ─── AUTH ─────────────────────────────────────────────────────────────────────
 
 let authToken = sessionStorage.getItem('pw_token') || null;
@@ -1613,12 +1691,28 @@ function buildCharts() {
     grad.addColorStop(0, alpha);
     grad.addColorStop(1, 'rgba(0,0,0,0)');
     if (charts[d.id]) charts[d.id].destroy();
+
+    const datasets = [{
+      data, borderColor: hex, borderWidth: 1.5, pointRadius: 0, tension: 0.35,
+      fill: true, backgroundColor: grad,
+    }];
+
+    // Threshold reference line — dashed yellow at degradedThreshold
+    if (d.degradedThreshold) {
+      datasets.push({
+        data: Array(data.length).fill(d.degradedThreshold),
+        borderColor: 'rgba(245,158,11,0.5)',
+        borderWidth: 1,
+        borderDash: [4, 4],
+        pointRadius: 0,
+        tension: 0,
+        fill: false,
+      });
+    }
+
     charts[d.id] = new Chart(ctx, {
       type: 'line',
-      data: {
-        labels: data.map((_, i) => i + 1),
-        datasets: [{ data, borderColor: hex, borderWidth: 1.5, pointRadius: 0, tension: 0.35, fill: true, backgroundColor: grad }]
-      },
+      data: { labels: data.map((_, i) => i + 1), datasets },
       options: {
         responsive: true, maintainAspectRatio: false, animation: false,
         plugins: { legend: { display: false }, tooltip: { enabled: false } },
@@ -1713,6 +1807,10 @@ function updateCards() {
     if (ch) {
       ch.data.datasets[0].data        = d.history.map(h => h.rt || 0);
       ch.data.datasets[0].borderColor = hex;
+      // Resize threshold line to match history length
+      if (ch.data.datasets[1] && d.degradedThreshold) {
+        ch.data.datasets[1].data = Array(d.history.length).fill(d.degradedThreshold);
+      }
       ch.update('none');
     }
 
