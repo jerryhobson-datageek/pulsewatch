@@ -1,211 +1,136 @@
-# PulseWatch — Status Dashboard
+# PulseWatch
 
-A self-hosted uptime monitoring dashboard. Monitors HTTP and TCP services and displays live status, response times, and incident history.
+A self-hosted uptime and status dashboard. Monitor HTTP and TCP services with live status, response times, sparklines, SSL tracking, and persistent check history.
 
----
+![Dashboard dark](docs/screenshots/02_dashboard_dark.png)
 
-## Files
+## Features
 
-| File | Description |
+- **Live monitoring** — HTTP and TCP checks on configurable intervals
+- **Response time sparklines** — last 60 checks visualised per service card
+- **Heartbeat bars** — at-a-glance uptime pattern for the last 30 checks
+- **SSL certificate tracking** — days-remaining badge with warning / critical / expired states
+- **Persistent history** — every check saved to SQLite; survives restarts; 30-day retention
+- **History modal** — click any service card to view 24h / 7d / 30d charts and an uptime heatmap
+- **Incident log** — status-change events captured in real time
+- **Maintenance windows** — schedule downtime to suppress alerts
+- **Dark / light theme** — toggleable, preference saved in `localStorage`
+- **Admin / viewer roles** — admins can add, edit, delete services and schedule maintenance
+- **No npm dependencies** — Node.js stdlib + built-in `node:sqlite` only
+
+## Screenshots
+
+| | Dark | Light |
+|---|---|---|
+| **Dashboard** | ![](docs/screenshots/02_dashboard_dark.png) | ![](docs/screenshots/05_dashboard_light.png) |
+| **History modal** | ![](docs/screenshots/03_history_modal_dark.png) | ![](docs/screenshots/06_history_modal_light.png) |
+
+## Tech stack
+
+| Layer | Choice |
 |---|---|
-| `index.html` | The dashboard frontend |
-| `server.js` | Node.js backend — runs health checks and serves the dashboard |
-| `config.json` | Your services configuration |
-| `setup.sh` | One-command installer for Linux |
+| Runtime | Node.js 22 — uses built-in `node:sqlite`, zero npm packages |
+| Frontend | Vanilla JS + [Chart.js](https://www.chartjs.org/) (CDN) |
+| Auth | `scrypt`-hashed passwords · bearer tokens · `sessionStorage` (24 hr) |
+| Persistence | `config.json` (services + credentials) · `history.db` (SQLite) |
+| Deployment | systemd service, runs as `www-data` |
 
----
+## Project structure
 
-## Deployment
+```
+server.js         Node.js backend — monitoring engine + HTTP API
+index.html        Single-page frontend — all UI in one file
+setup.sh          One-command installer for Linux
+
+# Created at runtime, not in repo:
+config.json       Services list, port, intervals, hashed passwords
+maintenance.json  Maintenance window state
+history.db        SQLite check history (30-day rolling)
+```
+
+## Quick start
 
 ### Requirements
-- A Linux server (Ubuntu/Debian or RHEL/Rocky/CentOS)
-- SSH access with a user that can `sudo`
 
----
+- Linux server (Ubuntu/Debian or RHEL/Rocky/CentOS)
+- Node.js 22+
 
-### Step 1 — Edit config.json
-
-Before uploading, open `config.json` and set your services. Example:
-
-```json
-{
-  "port": 3000,
-  "interval": 30,
-  "services": [
-    {
-      "id": 1,
-      "name": "My Site",
-      "url": "https://mysite.com",
-      "type": "HTTP",
-      "degradedThreshold": 1000
-    },
-    {
-      "id": 2,
-      "name": "Postgres",
-      "url": "localhost:5432",
-      "type": "TCP"
-    }
-  ]
-}
-```
-
----
-
-### Step 2 — Copy files to the server
-
-From PowerShell on Windows:
-
-```powershell
-scp C:\claudcode\index.html C:\claudcode\server.js C:\claudcode\config.json C:\claudcode\setup.sh user@YOUR_SERVER_IP:~/pulsewatch/
-```
-
-Replace `user` and `YOUR_SERVER_IP` with your SSH username and server IP.
-
----
-
-### Step 3 — SSH into the server
+### Install
 
 ```bash
-ssh user@YOUR_SERVER_IP
-```
-
----
-
-### Step 4 — Run the installer
-
-```bash
-cd ~/pulsewatch
+git clone https://github.com/jerryhobson-datageek/plusewatch.git
+cd plusewatch
 chmod +x setup.sh
 sudo ./setup.sh
 ```
 
 The installer will:
-- Install Node.js 20 (if not already installed)
-- Install nginx (if not already installed)
+- Install Node.js 22 if needed
 - Deploy files to `/opt/pulsewatch/`
-- Register and start a `systemd` service
-- Configure nginx as a reverse proxy on port 80
+- Register and start a `systemd` service on port 3000
 
-When complete you will see:
+Once running, open `http://YOUR_SERVER_IP:3000` in your browser. Cards show live status within 30 seconds.
 
-```
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  PulseWatch is running!
-
-  Dashboard  →  http://YOUR_SERVER_IP
-  Direct     →  http://YOUR_SERVER_IP:3000
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-```
-
----
-
-### Step 5 — Open the dashboard
-
-Go to `http://YOUR_SERVER_IP` in your browser. Cards will show real status within 30 seconds as the first checks complete.
-
----
-
-### Step 6 — Point a subdomain at it (optional)
-
-If you use Nginx Proxy Manager, add a new Proxy Host:
-
-| Field | Value |
-|---|---|
-| Domain Name | `status.yourdomain.com` |
-| Scheme | `http` |
-| Forward Hostname/IP | Your server's local IP |
-| Forward Port | `3000` |
-| SSL | Request a new Let's Encrypt cert |
-
----
-
-## Authentication
-
-PulseWatch has two roles:
-
-| Role | Access |
-|---|---|
-| **Admin** | Full dashboard access + Change Password |
-| **Viewer** | Read-only dashboard — status and history only |
-
-Default credentials are created automatically on first run:
+### Default credentials
 
 | Username | Password | Role |
 |---|---|---|
-| `admin` | `admin123` | Admin |
-| `viewer` | `viewer123` | Viewer |
+| `admin` | `admin123` | Admin — full access |
+| `viewer` | `viewer123` | Viewer — read-only |
 
 > **Change these immediately after first login** — click your username in the top-right corner → Change Password.
 
-Passwords are hashed with `scrypt` and stored in `config.json`. Sessions last 24 hours and are stored in browser `sessionStorage` (cleared when the tab closes).
+## Service configuration
 
----
+Services can be managed through the Admin UI (Services section at the bottom of the dashboard) or by editing `/opt/pulsewatch/config.json` directly.
 
-## Managing Services
-
-Services are configured in `/opt/pulsewatch/config.json` on the server.
-
-### Add a new service
-
-```bash
-nano /opt/pulsewatch/config.json
-```
-
-Add a new entry to the `services` array:
-
-```json
-{
-  "id": 4,
-  "name": "My New Site",
-  "url": "https://newsite.com",
-  "type": "HTTP",
-  "degradedThreshold": 1000
-}
-```
-
-Then restart to apply:
-
-```bash
-systemctl restart pulsewatch
-```
-
-### Service config options
+### Config options
 
 | Field | Required | Description |
 |---|---|---|
-| `id` | Yes | Unique number — just keep incrementing |
-| `name` | Yes | Display name shown on the card |
-| `url` | Yes | Full URL for HTTP, or `host:port` for TCP |
+| `id` | Yes | Unique integer |
+| `name` | Yes | Display name |
+| `url` | Yes | Full URL for HTTP/HTTPS, or `host:port` for TCP |
 | `type` | Yes | `HTTP` or `TCP` |
-| `interval` | No | Check interval in seconds (default: 30) |
-| `degradedThreshold` | No | Response time in ms above which status turns yellow |
+| `interval` | No | Check interval in seconds (default: global or 30) |
+| `degradedThreshold` | No | RT in ms above which status turns yellow |
 | `timeout` | No | Request timeout in ms (default: 5000) |
+| `sslCheck` | No | Set `false` to disable SSL tracking for an HTTPS service |
 
----
+## API
 
-## Service Management
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/login` | — | Obtain a bearer token |
+| `POST` | `/api/logout` | any | Invalidate token |
+| `GET` | `/api/me` | any | Current user info |
+| `GET` | `/api/status` | any | Live state for all services |
+| `GET` | `/api/history/:id?range=24h\|7d\|30d` | any | Bucketed check history from SQLite |
+| `GET` | `/api/services` | admin | List services |
+| `POST` | `/api/services` | admin | Add a service |
+| `PUT` | `/api/services/:id` | admin | Update a service |
+| `DELETE` | `/api/services/:id` | admin | Remove a service |
+| `GET` | `/api/maintenance` | any | List maintenance windows |
+| `POST` | `/api/maintenance` | admin | Schedule a maintenance window |
+| `DELETE` | `/api/maintenance/:id` | admin | Delete a maintenance window |
+| `POST` | `/api/change-password` | any | Change own password |
 
-| Action | Command |
-|---|---|
-| Start | `systemctl start pulsewatch` |
-| Stop | `systemctl stop pulsewatch` |
-| Restart | `systemctl restart pulsewatch` |
-| Check status | `systemctl status pulsewatch` |
-| View live logs | `journalctl -u pulsewatch -f` |
+## Service management
 
----
+```bash
+systemctl start pulsewatch
+systemctl stop pulsewatch
+systemctl restart pulsewatch
+systemctl status pulsewatch
+journalctl -u pulsewatch -f   # live logs
+```
 
 ## Updating
 
-To deploy updated files from your Windows machine:
-
-```powershell
-scp C:\claudcode\index.html C:\claudcode\server.js C:\claudcode\setup.sh user@YOUR_SERVER_IP:~/pulsewatch/
-```
-
-Then SSH in and re-run the installer — it is safe to run multiple times and will not overwrite your `config.json`:
-
 ```bash
-cd ~/pulsewatch
-sudo ./setup.sh
+# On the server
+cd /root/plusewatch
+git pull
+cp server.js index.html /opt/pulsewatch/
+systemctl restart pulsewatch
 ```
