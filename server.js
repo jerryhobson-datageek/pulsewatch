@@ -8,6 +8,7 @@ const fs     = require('fs');
 const path   = require('path');
 const crypto = require('crypto');
 const { URL } = require('url');
+const { DatabaseSync } = require('node:sqlite');
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -30,6 +31,32 @@ const SESSION_TTL      = 24 * 60 * 60 * 1000; // 24 hours
 const SSL_INTERVAL     = 6 * 60 * 60 * 1000;  // 6 hours
 const SSL_WARNING_DAYS = config.sslWarningDays  ?? 30;
 const SSL_CRITICAL_DAYS= config.sslCriticalDays ?? 7;
+
+// ── SQLite history ────────────────────────────────────────────────────────────
+
+const DB_PATH     = path.join(__dirname, 'history.db');
+const HISTORY_DAYS = 30;
+
+const db = new DatabaseSync(DB_PATH);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS checks (
+    id     INTEGER PRIMARY KEY AUTOINCREMENT,
+    svc_id INTEGER NOT NULL,
+    status TEXT    NOT NULL,
+    rt     INTEGER,
+    ts     INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_svc_ts ON checks(svc_id, ts);
+`);
+const stmtInsert  = db.prepare('INSERT INTO checks (svc_id, status, rt, ts) VALUES (?, ?, ?, ?)');
+const stmtHistory = db.prepare('SELECT status, rt, ts FROM checks WHERE svc_id = ? ORDER BY ts DESC LIMIT ?');
+const stmtPrune   = db.prepare('DELETE FROM checks WHERE ts < ?');
+
+function pruneHistory() {
+  stmtPrune.run(Date.now() - HISTORY_DAYS * 86_400_000);
+}
+pruneHistory();
+setInterval(pruneHistory, 24 * 60 * 60 * 1000);
 
 // ── Maintenance ───────────────────────────────────────────────────────────────
 
@@ -152,7 +179,7 @@ for (const svc of config.services) {
     type:              svc.type || 'HTTP',
     status:            'pending',
     rt:                null,
-    history:           [],
+    history:           stmtHistory.all(svc.id, HISTORY_SIZE).reverse(),
     lastCheck:         null,
     maintenance:       null,
     degradedThreshold: svc.degradedThreshold || null,
@@ -295,8 +322,10 @@ async function runCheck(svc) {
   d.maintenance = activeWindow
     ? { active: true, id: activeWindow.id, title: activeWindow.title, end: activeWindow.end }
     : null;
-  d.history.push({ status: result.status, rt: result.rt, ts: Date.now() });
+  const ts = Date.now();
+  d.history.push({ status: result.status, rt: result.rt, ts });
   if (d.history.length > HISTORY_SIZE) d.history.shift();
+  stmtInsert.run(svc.id, result.status, result.rt ?? null, ts);
 
   const icon = result.status === 'up' ? '✓' : result.status === 'maintenance' ? '🔧' : result.status === 'degraded' ? '⚠' : '✗';
   console.log(`[${d.lastCheck}] ${icon} ${svc.name.padEnd(20)} ${result.status.padEnd(12)} ${result.rt ?? '—'}ms`);
