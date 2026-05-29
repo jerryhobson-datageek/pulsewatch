@@ -51,6 +51,18 @@ db.exec(`
 const stmtInsert  = db.prepare('INSERT INTO checks (svc_id, status, rt, ts) VALUES (?, ?, ?, ?)');
 const stmtHistory = db.prepare('SELECT status, rt, ts FROM checks WHERE svc_id = ? ORDER BY ts DESC LIMIT ?');
 const stmtPrune   = db.prepare('DELETE FROM checks WHERE ts < ?');
+const stmtAgg     = db.prepare(`
+  SELECT
+    (ts / ?) * ? AS bucket,
+    AVG(CASE WHEN rt IS NOT NULL THEN rt END) AS avgRt,
+    MAX(CASE WHEN rt IS NOT NULL THEN rt END) AS maxRt,
+    COUNT(*) AS total,
+    SUM(CASE WHEN status = 'up' THEN 1 ELSE 0 END) AS upCount
+  FROM checks
+  WHERE svc_id = ? AND ts >= ?
+  GROUP BY bucket
+  ORDER BY bucket ASC
+`);
 
 function pruneHistory() {
   stmtPrune.run(Date.now() - HISTORY_DAYS * 86_400_000);
@@ -644,6 +656,23 @@ const server = http.createServer(async (req, res) => {
 
     console.log(`[Auth] Password changed: ${session.username}`);
     return json(res, 200, { ok: true });
+  }
+
+  // ── GET /api/history/:id ─────────────────────────────────────────────────
+  if (pathname.startsWith('/api/history/') && req.method === 'GET') {
+    const session = requireAuth(req, res);
+    if (!session) return;
+    const id    = Number(pathname.slice('/api/history/'.length));
+    const range = new URL(req.url, `http://localhost:${PORT}`).searchParams.get('range') || '24h';
+    const BUCKETS = { '24h': 30 * 60_000, '7d': 4 * 3600_000, '30d': 86_400_000 };
+    const WINDOWS = { '24h': 86_400_000,  '7d': 7 * 86_400_000, '30d': 30 * 86_400_000 };
+    if (!BUCKETS[range]) return json(res, 400, { error: 'Invalid range' });
+    config = loadConfig();
+    const svc = config.services.find(s => s.id === id);
+    if (!svc) return json(res, 404, { error: 'Service not found' });
+    const bucketMs = BUCKETS[range];
+    const points   = stmtAgg.all(bucketMs, bucketMs, id, Date.now() - WINDOWS[range]);
+    return json(res, 200, { serviceId: id, serviceName: svc.name, range, points });
   }
 
   // ── Static files ───────────────────────────────────────────────────────────

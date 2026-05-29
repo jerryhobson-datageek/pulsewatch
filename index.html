@@ -280,7 +280,7 @@
     gap: 12px;
     transition: all 0.2s;
     backdrop-filter: blur(12px);
-    cursor: default;
+    cursor: pointer;
     position: relative;
     overflow: hidden;
   }
@@ -1203,6 +1203,32 @@
 
   .modal-msg.error   { display: block; background: rgba(244,63,94,0.1);  color: var(--red);   border: 1px solid rgba(244,63,94,0.2); }
   .modal-msg.success { display: block; background: rgba(34,211,160,0.1); color: var(--green); border: 1px solid rgba(34,211,160,0.2); }
+
+  /* ── HISTORY MODAL ── */
+  .hist-stat {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.7rem 0.9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .hist-stat-label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+  .hist-stat-value { font-size: 1.05rem; font-weight: 700; line-height: 1.2; }
+
+  .hist-uptime-row { display: flex; gap: 2px; margin-top: 0.75rem; }
+  .hist-cell { flex: 1; height: 8px; border-radius: 2px; transition: opacity 0.15s; }
+  .hist-cell:hover { opacity: 0.6 !important; }
+
+  .hist-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 200px;
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
 </style>
 </head>
 <body>
@@ -1327,6 +1353,35 @@
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeMaintModal()">Cancel</button>
       <button class="btn-primary" id="maintSaveBtn" onclick="doScheduleMaintenance()">Schedule</button>
+    </div>
+  </div>
+</div>
+
+<!-- HISTORY MODAL -->
+<div class="modal-overlay" id="histModal" onclick="if(event.target===this)closeHistModal()">
+  <div class="modal" style="max-width:740px;width:calc(100vw - 2rem);max-height:calc(100vh - 4rem);overflow-y:auto">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:1.25rem">
+      <div>
+        <h2 style="margin:0" id="histTitle">History</h2>
+        <div id="histSubtitle" style="font-size:0.75rem;color:var(--muted);margin-top:3px"></div>
+      </div>
+      <button onclick="closeHistModal()" style="background:none;border:none;color:var(--muted);font-size:1rem;cursor:pointer;padding:4px;line-height:1;margin-left:1rem;flex-shrink:0">✕</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.6rem;margin-bottom:1.1rem" id="histStats"></div>
+    <div style="display:flex;gap:6px;margin-bottom:1rem">
+      <button id="histBtn24h" class="sort-btn active" onclick="loadHistory(currentHistId,'24h')">24h</button>
+      <button id="histBtn7d"  class="sort-btn"        onclick="loadHistory(currentHistId,'7d')">7d</button>
+      <button id="histBtn30d" class="sort-btn"        onclick="loadHistory(currentHistId,'30d')">30d</button>
+    </div>
+    <div style="position:relative;height:200px">
+      <div class="hist-loading" id="histLoading">Loading…</div>
+      <canvas id="histChartCanvas" style="display:none"></canvas>
+    </div>
+    <div class="hist-uptime-row" id="histHeatmap"></div>
+    <div style="display:flex;justify-content:space-between;font-size:0.65rem;color:var(--muted);margin-top:4px">
+      <span id="histRangeStart"></span>
+      <span>Uptime per bucket</span>
+      <span>Now</span>
     </div>
   </div>
 </div>
@@ -1587,6 +1642,9 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !document.getElementById('loginOverlay').classList.contains('hidden')) {
     doLogin();
   }
+  if (e.key === 'Escape' && document.getElementById('histModal').classList.contains('open')) {
+    closeHistModal();
+  }
 });
 
 // ─── CHANGE PASSWORD MODAL ────────────────────────────────────────────────────
@@ -1658,6 +1716,8 @@ const incidents = [];
 const charts    = {};
 let sortMode    = 'status';
 let initialized = false;
+let currentHistId  = null;
+let histChartInst  = null;
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
@@ -1717,7 +1777,7 @@ function renderCard(d) {
   const pctDisplay = pct != null ? `${pct}%` : '—';
 
   return `
-  <div class="monitor-card ${cardStatus}" id="card-${d.id}">
+  <div class="monitor-card ${cardStatus}" id="card-${d.id}" onclick="openHistoryModal(${d.id})">
     <div class="card-top">
       <div class="card-left">
         <div class="status-ring">
@@ -2355,6 +2415,134 @@ async function doScheduleMaintenance() {
 
 // Refresh banner countdown every minute
 setInterval(() => { renderMaintBanner(); renderMaintSection(); }, 60000);
+
+// ─── HISTORY MODAL ────────────────────────────────────────────────────────────
+
+function openHistoryModal(id) {
+  currentHistId = id;
+  const d = state[id];
+  if (!d) return;
+  document.getElementById('histTitle').textContent    = d.name;
+  document.getElementById('histSubtitle').textContent = d.url;
+  document.getElementById('histModal').classList.add('open');
+  loadHistory(id, '24h');
+}
+
+function closeHistModal() {
+  document.getElementById('histModal').classList.remove('open');
+  if (histChartInst) { histChartInst.destroy(); histChartInst = null; }
+}
+
+async function loadHistory(id, range) {
+  ['24h','7d','30d'].forEach(r =>
+    document.getElementById('histBtn' + r).classList.toggle('active', r === range)
+  );
+  const loading = document.getElementById('histLoading');
+  loading.style.display = 'flex';
+  loading.textContent   = 'Loading…';
+  document.getElementById('histChartCanvas').style.display = 'none';
+  document.getElementById('histStats').innerHTML   = '';
+  document.getElementById('histHeatmap').innerHTML = '';
+  try {
+    const res = await fetch(`/api/history/${id}?range=${range}`, { headers: authHeaders() });
+    if (!res.ok) throw new Error(res.status);
+    renderHistModal(await res.json(), range);
+  } catch {
+    loading.textContent = 'Failed to load history.';
+  }
+}
+
+function renderHistModal({ points }, range) {
+  let totalChecks = 0, totalUp = 0, sumRt = 0, rtCount = 0, maxRtVal = 0;
+  for (const p of points) {
+    totalChecks += p.total;
+    totalUp     += p.upCount;
+    if (p.avgRt != null) { sumRt += p.avgRt * p.total; rtCount += p.total; }
+    if (p.maxRt != null && p.maxRt > maxRtVal) maxRtVal = p.maxRt;
+  }
+  const upPct   = totalChecks ? ((totalUp / totalChecks) * 100).toFixed(2) : null;
+  const avgRt   = rtCount     ? Math.round(sumRt / rtCount)                 : null;
+  const upColor = upPct == null ? 'var(--muted)' : upPct >= 99 ? 'var(--green)' : upPct >= 95 ? 'var(--yellow)' : 'var(--red)';
+
+  document.getElementById('histStats').innerHTML = [
+    ['Uptime',       upPct  != null ? upPct + '%'   : '—', upColor],
+    ['Avg Response', avgRt  != null ? avgRt + ' ms' : '—', 'var(--text)'],
+    ['Max Response', maxRtVal       ? maxRtVal + ' ms' : '—', 'var(--text)'],
+    ['Total Checks', totalChecks || '—',                    'var(--text)'],
+  ].map(([label, val, color]) => `
+    <div class="hist-stat">
+      <div class="hist-stat-label">${label}</div>
+      <div class="hist-stat-value" style="color:${color}">${val}</div>
+    </div>`).join('');
+
+  document.getElementById('histHeatmap').innerHTML = points.map(p => {
+    const pct = p.total ? p.upCount / p.total : 1;
+    const col = pct === 1 ? '#22d3a0' : pct === 0 ? '#f43f5e' : '#f59e0b';
+    const tip = new Date(p.bucket).toLocaleString() + ' — ' + (pct * 100).toFixed(0) + '% up';
+    return `<div class="hist-cell" style="background:${col};opacity:${(0.35 + pct * 0.65).toFixed(2)}" title="${tip}"></div>`;
+  }).join('');
+
+  if (points.length) {
+    document.getElementById('histRangeStart').textContent = fmtHistLabel(points[0].bucket, range);
+  }
+
+  if (!points.length) {
+    document.getElementById('histLoading').style.display = 'flex';
+    document.getElementById('histLoading').textContent   = 'No data for this range yet.';
+    return;
+  }
+
+  document.getElementById('histLoading').style.display = 'none';
+  const canvas = document.getElementById('histChartCanvas');
+  canvas.style.display = 'block';
+  if (histChartInst) { histChartInst.destroy(); histChartInst = null; }
+
+  const isDark   = document.documentElement.getAttribute('data-theme') !== 'light';
+  const gridCol  = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
+  const tickCol  = isDark ? '#64748b' : '#94a3b8';
+  const ctx      = canvas.getContext('2d');
+  const grad     = ctx.createLinearGradient(0, 0, 0, 200);
+  grad.addColorStop(0, isDark ? 'rgba(99,102,241,0.3)' : 'rgba(79,70,229,0.15)');
+  grad.addColorStop(1, 'rgba(99,102,241,0)');
+
+  histChartInst = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels:   points.map(p => fmtHistLabel(p.bucket, range)),
+      datasets: [{
+        data:            points.map(p => p.avgRt != null ? Math.round(p.avgRt) : null),
+        borderColor:     '#6366f1',
+        borderWidth:     2,
+        pointRadius:     0,
+        tension:         0.3,
+        fill:            true,
+        backgroundColor: grad,
+        spanGaps:        true,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: {
+        legend:  { display: false },
+        tooltip: { callbacks: { label: item => item.raw != null ? item.raw + ' ms avg' : 'No data' } },
+      },
+      scales: {
+        x: { ticks: { maxTicksLimit: 8, color: tickCol, font: { size: 10 } }, grid: { color: gridCol } },
+        y: { ticks: { color: tickCol, font: { size: 10 } }, grid: { color: gridCol }, suggestedMin: 0 },
+      }
+    }
+  });
+}
+
+function fmtHistLabel(ts, range) {
+  const d = new Date(ts);
+  if (range === '24h') return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+  if (range === '7d')  return d.toLocaleDateString('en-US', { weekday: 'short' }) + ' ' +
+                              d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
 
 // ─── SORT ─────────────────────────────────────────────────────────────────────
 
