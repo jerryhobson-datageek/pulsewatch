@@ -28,6 +28,10 @@ A self-hosted uptime and status dashboard. Monitor HTTP, TCP, and PING services 
 |---|---|---|
 | **Dashboard** | ![](docs/screenshots/dashboard_dark.png) | ![](docs/screenshots/dashboard_light.png) |
 
+**PING monitor card**
+
+![PING card](docs/screenshots/ping_card.png)
+
 **Server stats**
 
 ![Server stats](docs/screenshots/server_stats.png)
