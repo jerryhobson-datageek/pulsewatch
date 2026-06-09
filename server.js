@@ -427,7 +427,7 @@ function checkHTTP(svc) {
         path:     parsed.pathname + parsed.search,
         method:   'GET',
         timeout,
-        headers:  { 'User-Agent': 'PulseWatch/1.0', Connection: 'close' },
+        headers:  { 'User-Agent': 'PulseWatch/1.0', 'Accept': '*/*', Connection: 'close' },
       },
       (res) => {
         res.resume();
