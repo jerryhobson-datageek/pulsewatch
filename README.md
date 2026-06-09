@@ -52,35 +52,75 @@ A self-hosted uptime and status dashboard. Monitor HTTP, TCP, and PING services 
 | Frontend | Vanilla JS + [Chart.js](https://www.chartjs.org/) (CDN) |
 | Auth | `scrypt`-hashed passwords · bearer tokens · `sessionStorage` (24 hr) |
 | Persistence | `config.json` (services + credentials + alert webhooks) · `history.db` (SQLite) |
-| Deployment | systemd service, runs as `www-data` |
+| Deployment | systemd service **or** Docker (`node:22-alpine`) |
 
 ## Project structure
 
 ```
-server.js         Node.js backend — monitoring engine + HTTP API
-index.html        Single-page frontend — all UI in one file
-setup.sh          One-command installer for Linux
+server.js            Node.js backend — monitoring engine + HTTP API
+index.html           Single-page frontend — all UI in one file
+public.html          Public status page (no login required)
+Dockerfile           node:22-alpine image
+docker-compose.yml   Port, volume, NET_RAW capability for PING
+setup.sh             One-command installer for Linux (non-Docker)
 
-# Created at runtime, not in repo:
-config.json       Services list, port, intervals, hashed passwords, alert webhooks
-maintenance.json  Maintenance window state
-history.db        SQLite — check history + incident log (30-day rolling)
+# Runtime files — not in repo, persist via volume or /opt/pulsewatch/:
+config.json          Services, credentials, alert webhooks
+maintenance.json     Maintenance window state
+history.db           SQLite — check history + incident log (30-day rolling)
 ```
 
 ## Docker
 
 ```bash
-# Clone and start
 git clone https://github.com/jerryhobson-datageek/plusewatch.git
 cd plusewatch
 docker compose up -d
 ```
 
-Runtime data (`config.json`, `maintenance.json`, `history.db`) is stored in `./data/` on the host and persists across container rebuilds.
+Open `http://localhost:3000`. Default credentials (`admin / admin123`) are created automatically on first run — **change them immediately**.
 
-Open `http://localhost:3000`. Default credentials: `admin / admin123` — change immediately.
+### Data persistence
 
-> **PING checks** require the `NET_RAW` capability, which is included in `docker-compose.yml`. If you run the container manually add `--cap-add NET_RAW`.
+Runtime files are stored in `./data/` on the host and mounted into the container at `/data`. They persist across image rebuilds and container restarts.
+
+```
+./data/
+  config.json       # services, credentials, alert webhooks
+  maintenance.json  # maintenance windows
+  history.db        # SQLite check history + incident log
+```
+
+### Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `PORT` | `3000` | HTTP port the server listens on |
+| `DATA_DIR` | `/data` (Docker) / app dir (bare) | Directory for runtime data files |
+
+### PING checks in Docker
+
+PING uses ICMP which requires the `NET_RAW` capability. This is already set in `docker-compose.yml`:
+
+```yaml
+cap_add:
+  - NET_RAW
+```
+
+If running the container manually: `docker run --cap-add NET_RAW ...`
+
+### Build and run manually
+
+```bash
+docker build -t pulsewatch .
+docker run -d \
+  --name pulsewatch \
+  --restart unless-stopped \
+  -p 3000:3000 \
+  -v $(pwd)/data:/data \
+  --cap-add NET_RAW \
+  pulsewatch
+```
 
 ## Quick start (without Docker)
 
