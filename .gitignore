@@ -4,3 +4,5 @@ node_modules/
 .claude/settings.local.json
 /screenshots/
 verify_*.py
+ss_*.py
+~$*
