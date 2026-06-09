@@ -27,6 +27,10 @@ A self-hosted uptime and status dashboard. Monitor HTTP and TCP services with li
 |---|---|---|
 | **Dashboard** | ![](docs/screenshots/dashboard_dark.png) | ![](docs/screenshots/dashboard_light.png) |
 
+**Server stats**
+
+![Server stats](docs/screenshots/server_stats.png)
+
 **Incident log**
 
 ![Incident log](docs/screenshots/incident_log.png)
