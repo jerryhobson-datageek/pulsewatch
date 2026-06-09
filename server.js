@@ -230,9 +230,10 @@ for (const svc of config.services) {
     lastCheck:         null,
     maintenance:       null,
     degradedThreshold: svc.degradedThreshold || null,
-    uptime24h:         u24.total ? parseFloat((u24.upCount / u24.total * 100).toFixed(2)) : null,
-    openIncidentId:    openInc?.id    ?? null,
-    openIncidentStart: openInc?.started_at ?? null,
+    uptime24h:            u24.total ? parseFloat((u24.upCount / u24.total * 100).toFixed(2)) : null,
+    consecutiveFailures:  0,
+    openIncidentId:       openInc?.id    ?? null,
+    openIncidentStart:    openInc?.started_at ?? null,
     ssl: isHTTPS(svc)
       ? { status: 'pending', daysLeft: null, expiry: null }
       : null,
@@ -500,24 +501,40 @@ async function runCheck(svc) {
   const u24 = stmtUptime24h.get(svc.id, ts - 86_400_000);
   d.uptime24h = u24.total ? parseFloat((u24.upCount / u24.total * 100).toFixed(2)) : null;
 
-  // Incident tracking + alerts (ignore maintenance transitions)
+  // Consecutive failure tracking
   const isOutage = s => s === 'down' || s === 'degraded';
-  if (prevStatus !== 'pending' && prevStatus !== result.status && result.status !== 'maintenance' && prevStatus !== 'maintenance') {
-    if (isOutage(result.status) && !isOutage(prevStatus)) {
-      const r = stmtOpenIncident.run(svc.id, svc.name, result.status, ts);
-      d.openIncidentId    = r.lastInsertRowid;
-      d.openIncidentStart = ts;
+  if (isOutage(result.status)) {
+    d.consecutiveFailures++;
+  } else {
+    d.consecutiveFailures = 0;
+  }
+
+  // Incident + alert logic (respects alertThreshold, ignores maintenance)
+  if (result.status !== 'maintenance' && prevStatus !== 'maintenance' && prevStatus !== 'pending') {
+    const threshold = svc.alertThreshold ?? config.alertThreshold ?? 1;
+    if (isOutage(result.status)) {
+      // Open incident + fire alert exactly when threshold is reached
+      if (d.consecutiveFailures === threshold && !d.openIncidentId) {
+        const r = stmtOpenIncident.run(svc.id, svc.name, result.status, ts);
+        d.openIncidentId    = r.lastInsertRowid;
+        d.openIncidentStart = ts;
+        fireAlerts(svc, result.status, result.rt).catch(err => console.error('[Alert] Error:', err.message));
+      }
     } else if (!isOutage(result.status) && d.openIncidentId) {
+      // Recovered — close incident and alert
       const duration = d.openIncidentStart ? ts - d.openIncidentStart : null;
       stmtCloseIncident.run(ts, duration, d.openIncidentId);
       d.openIncidentId    = null;
       d.openIncidentStart = null;
+      fireAlerts(svc, result.status, result.rt).catch(err => console.error('[Alert] Error:', err.message));
     }
-    fireAlerts(svc, result.status, result.rt).catch(err => console.error('[Alert] Error:', err.message));
   }
 
+  const threshold = svc.alertThreshold ?? config.alertThreshold ?? 1;
+  const pendingNote = isOutage(result.status) && d.consecutiveFailures < threshold
+    ? ` (${d.consecutiveFailures}/${threshold})` : '';
   const icon = result.status === 'up' ? '✓' : result.status === 'maintenance' ? '🔧' : result.status === 'degraded' ? '⚠' : '✗';
-  console.log(`[${d.lastCheck}] ${icon} ${svc.name.padEnd(20)} ${result.status.padEnd(12)} ${result.rt ?? '—'}ms`);
+  console.log(`[${d.lastCheck}] ${icon} ${svc.name.padEnd(20)} ${result.status.padEnd(12)} ${result.rt ?? '—'}ms${pendingNote}`);
 }
 
 // Track intervals so we can stop monitoring a service on demand
@@ -696,7 +713,7 @@ const server = http.createServer(async (req, res) => {
     try { body = JSON.parse(await readBody(req)); }
     catch { return json(res, 400, { error: 'Invalid JSON' }); }
 
-    const { name, url, type, degradedThreshold, interval, sslCheck } = body;
+    const { name, url, type, degradedThreshold, interval, sslCheck, alertThreshold } = body;
     if (!name || !url || !type) return json(res, 400, { error: 'name, url and type are required' });
     if (!['HTTP', 'TCP', 'PING'].includes(type)) return json(res, 400, { error: 'type must be HTTP, TCP, or PING' });
 
@@ -709,6 +726,7 @@ const server = http.createServer(async (req, res) => {
       type,
       ...(degradedThreshold ? { degradedThreshold: Number(degradedThreshold) } : {}),
       ...(interval          ? { interval:          Number(interval) }          : {}),
+      ...(alertThreshold    ? { alertThreshold:    Number(alertThreshold) }    : {}),
       ...(sslCheck === false ? { sslCheck: false } : {}),
     };
     config.services.push(svc);
@@ -720,6 +738,8 @@ const server = http.createServer(async (req, res) => {
       status: 'pending', rt: null, history: [], lastCheck: null,
       maintenance: null,
       degradedThreshold: svc.degradedThreshold || null,
+      consecutiveFailures: 0,
+      openIncidentId: null, openIncidentStart: null,
       ssl: isHTTPS(svc) ? { status: 'pending', daysLeft: null, expiry: null } : null,
     };
     startServiceMonitoring(svc);
@@ -752,6 +772,10 @@ const server = http.createServer(async (req, res) => {
     if (body.interval !== undefined) {
       if (body.interval === null || body.interval === '') delete svc.interval;
       else svc.interval = Number(body.interval);
+    }
+    if (body.alertThreshold !== undefined) {
+      if (body.alertThreshold === null || body.alertThreshold === '') delete svc.alertThreshold;
+      else svc.alertThreshold = Number(body.alertThreshold);
     }
     if (body.sslCheck !== undefined) {
       if (body.sslCheck === false) svc.sslCheck = false;
