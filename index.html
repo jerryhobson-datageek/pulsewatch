@@ -1437,9 +1437,10 @@
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
       <div class="login-field">
         <label>Type</label>
-        <select id="serviceType" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:0.9rem;outline:none;width:100%;font-family:inherit">
+        <select id="serviceType" onchange="updateUrlPlaceholder()" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:0.9rem;outline:none;width:100%;font-family:inherit">
           <option value="HTTP">HTTP / HTTPS</option>
           <option value="TCP">TCP</option>
+          <option value="PING">PING</option>
         </select>
       </div>
       <div class="login-field">
@@ -2431,6 +2432,16 @@ function renderServicesList() {
   }).join('');
 }
 
+function updateUrlPlaceholder() {
+  const type = document.getElementById('serviceType').value;
+  const placeholders = {
+    HTTP: 'https://example.com',
+    TCP:  'host:port',
+    PING: '1.1.1.1 or hostname',
+  };
+  document.getElementById('serviceUrl').placeholder = placeholders[type] || 'https://example.com';
+}
+
 function openServiceModal(id = null) {
   const isEdit = id !== null;
   document.getElementById('serviceModalTitle').textContent = isEdit ? '✏️ Edit Service' : '＋ Add Service';
@@ -2440,6 +2451,7 @@ function openServiceModal(id = null) {
   document.getElementById('serviceName').value      = svc?.name      || '';
   document.getElementById('serviceUrl').value       = svc?.url       || '';
   document.getElementById('serviceType').value      = svc?.type      || 'HTTP';
+  updateUrlPlaceholder();
   document.getElementById('serviceInterval').value  = svc?.interval  || '';
   document.getElementById('serviceThreshold').value = svc?.degradedThreshold || '';
 

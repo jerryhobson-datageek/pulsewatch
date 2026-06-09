@@ -9,7 +9,8 @@ const path   = require('path');
 const crypto = require('crypto');
 const { URL } = require('url');
 const { DatabaseSync } = require('node:sqlite');
-const os   = require('os');
+const os                    = require('os');
+const { execFile }          = require('child_process');
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -447,10 +448,29 @@ function checkTCP(svc) {
   });
 }
 
+function checkPing(svc) {
+  return new Promise((resolve) => {
+    const start   = Date.now();
+    const host    = svc.url.replace(/^ping:\/\//i, '').split(/[\s;|&]/)[0];
+    if (!host)    return resolve({ status: 'down', rt: 0 });
+    const waitSec = String(Math.max(1, Math.floor((svc.timeout || DEFAULT_TIMEOUT) / 1000)));
+    execFile('ping', ['-c', '1', '-W', waitSec, host], { timeout: (parseInt(waitSec) + 2) * 1000 },
+      (err, stdout) => {
+        const rt    = Date.now() - start;
+        if (err)    return resolve({ status: 'down', rt });
+        const match = stdout.match(/time[=<](\d+\.?\d*)\s*ms/i);
+        resolve({ status: 'up', rt: match ? Math.round(parseFloat(match[1])) : rt });
+      }
+    );
+  });
+}
+
 async function runCheck(svc) {
   let result;
   try {
-    result = svc.type === 'TCP' ? await checkTCP(svc) : await checkHTTP(svc);
+    result = svc.type === 'TCP'  ? await checkTCP(svc)
+           : svc.type === 'PING' ? await checkPing(svc)
+           : await checkHTTP(svc);
   } catch {
     result = { status: 'down', rt: 0 };
   }
@@ -678,7 +698,7 @@ const server = http.createServer(async (req, res) => {
 
     const { name, url, type, degradedThreshold, interval, sslCheck } = body;
     if (!name || !url || !type) return json(res, 400, { error: 'name, url and type are required' });
-    if (!['HTTP', 'TCP'].includes(type)) return json(res, 400, { error: 'type must be HTTP or TCP' });
+    if (!['HTTP', 'TCP', 'PING'].includes(type)) return json(res, 400, { error: 'type must be HTTP, TCP, or PING' });
 
     config = loadConfig();
     const newId = (config.services.reduce((m, s) => Math.max(m, s.id), 0) || 0) + 1;
