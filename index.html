@@ -540,6 +540,58 @@
   .badge-ongoing  { background: rgba(244,63,94,0.12);  color: var(--red);   border: 1px solid rgba(244,63,94,0.25); }
   .badge-resolved { background: rgba(34,211,160,0.08); color: var(--green); border: 1px solid rgba(34,211,160,0.15); }
 
+  /* ── WEBHOOKS ── */
+  .webhook-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.9rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.15s;
+  }
+  .webhook-row:last-child { border-bottom: none; }
+  .webhook-row:hover      { background: var(--surface-hover); }
+  .webhook-info  { flex: 1; min-width: 0; }
+  .webhook-name  { font-size: 0.9rem; font-weight: 600; color: var(--text); margin-bottom: 3px; }
+  .webhook-meta  { font-size: 0.72rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .webhook-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+
+  .wh-toggle {
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    border: 1px solid;
+    font-family: inherit;
+    transition: all 0.15s;
+  }
+  .wh-toggle.enabled {
+    background: rgba(34,211,160,0.1);
+    border-color: rgba(34,211,160,0.3);
+    color: var(--green);
+  }
+  .wh-toggle:not(.enabled) {
+    background: rgba(100,116,139,0.1);
+    border-color: rgba(100,116,139,0.2);
+    color: var(--muted);
+  }
+
+  .check-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85rem;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .check-label input[type="checkbox"] {
+    accent-color: var(--accent);
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+  }
+
   /* ── TOAST ── */
   .toast-container {
     position: fixed;
@@ -1401,6 +1453,35 @@
   </div>
 </div>
 
+<!-- WEBHOOK MODAL -->
+<div class="modal-overlay" id="webhookModal">
+  <div class="modal" style="max-width:440px">
+    <h2 id="webhookModalTitle">＋ Add Webhook</h2>
+    <input type="hidden" id="webhookEditId" />
+    <div class="login-field">
+      <label>Name</label>
+      <input type="text" id="webhookName" placeholder="e.g. Discord #alerts" />
+    </div>
+    <div class="login-field">
+      <label>Webhook URL</label>
+      <input type="text" id="webhookUrl" placeholder="https://discord.com/api/webhooks/…" />
+    </div>
+    <div class="login-field">
+      <label>Notify on</label>
+      <div style="display:flex;gap:1.25rem;padding-top:6px">
+        <label class="check-label"><input type="checkbox" id="evtDown" value="down" checked> Down</label>
+        <label class="check-label"><input type="checkbox" id="evtDegraded" value="degraded"> Degraded</label>
+        <label class="check-label"><input type="checkbox" id="evtUp" value="up" checked> Recovery</label>
+      </div>
+    </div>
+    <div class="modal-msg" id="webhookMsg"></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeWebhookModal()">Cancel</button>
+      <button class="btn-primary" id="webhookSaveBtn" onclick="doSaveWebhook()">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- HEADER -->
 <header>
   <div class="logo">
@@ -1488,6 +1569,15 @@
       <button class="add-maint-btn" onclick="openMaintModal()">＋ Schedule</button>
     </div>
     <div class="maint-windows" id="maintWindowsList"></div>
+  </div>
+
+  <!-- Alert Webhooks (admin only) -->
+  <div class="maint-section admin-only" id="alertsSection">
+    <div class="section-header">
+      <div class="section-title">Alert Webhooks</div>
+      <button class="add-maint-btn" onclick="openWebhookModal()">＋ Add Webhook</button>
+    </div>
+    <div class="maint-windows" id="webhooksList"></div>
   </div>
 
   <!-- Incident Log -->
@@ -1594,6 +1684,7 @@ async function doLogin() {
     fetchMaintenance();
     fetchServicesList();
     fetchIncidents();
+    fetchAlerts();
   } catch {
     showLoginError('Could not reach server.');
   } finally {
@@ -1624,6 +1715,7 @@ async function checkAuth() {
     fetchMaintenance();
     fetchServicesList();
     fetchIncidents();
+    fetchAlerts();
   } catch {
     showLogin();
   }
@@ -2579,6 +2671,128 @@ function fmtHistLabel(ts, range) {
   if (range === '7d')  return d.toLocaleDateString('en-US', { weekday: 'short' }) + ' ' +
                               d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+// ─── ALERT WEBHOOKS ──────────────────────────────────────────────────────────
+
+let alertsConfig = null;
+
+async function fetchAlerts() {
+  if (currentUser?.role !== 'admin') return;
+  try {
+    const res = await fetch('/api/alerts', { headers: authHeaders() });
+    if (!res.ok) return;
+    alertsConfig = (await res.json()).alerts;
+    renderWebhooks();
+  } catch {}
+}
+
+function renderWebhooks() {
+  const list = document.getElementById('webhooksList');
+  const webhooks = alertsConfig?.webhooks || [];
+  if (!webhooks.length) {
+    list.innerHTML = `<div class="incident-item"><span style="color:var(--muted);font-size:0.8rem">No webhooks configured. Click ＋ Add Webhook to create one.</span></div>`;
+    return;
+  }
+  list.innerHTML = webhooks.map(wh => {
+    const evtLabels = { down: 'Down', degraded: 'Degraded', up: 'Recovery' };
+    const events = (wh.events || []).map(e => evtLabels[e] || e).join(', ');
+    const urlShort = wh.url.length > 55 ? wh.url.slice(0, 55) + '…' : wh.url;
+    return `<div class="webhook-row">
+      <div class="webhook-info">
+        <div class="webhook-name">${wh.name}</div>
+        <div class="webhook-meta">${urlShort} · Alerts: ${events}</div>
+      </div>
+      <div class="webhook-actions">
+        <button class="wh-toggle ${wh.enabled ? 'enabled' : ''}" onclick="toggleWebhook('${wh.id}',${!wh.enabled})">${wh.enabled ? 'On' : 'Off'}</button>
+        <button class="svc-btn svc-btn-edit" onclick="testWebhook('${wh.id}')">Test</button>
+        <button class="svc-btn svc-btn-edit" onclick="openWebhookModal('${wh.id}')">Edit</button>
+        <button class="svc-btn svc-btn-delete" onclick="deleteWebhook('${wh.id}','${wh.name.replace(/'/g,"\\'") }')">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function openWebhookModal(id = null) {
+  const isEdit = id !== null;
+  document.getElementById('webhookModalTitle').textContent = isEdit ? '✏️ Edit Webhook' : '＋ Add Webhook';
+  document.getElementById('webhookEditId').value = id ?? '';
+  const wh = isEdit ? (alertsConfig?.webhooks || []).find(w => w.id === id) : null;
+  document.getElementById('webhookName').value = wh?.name || '';
+  document.getElementById('webhookUrl').value  = wh?.url  || '';
+  const events = wh?.events || ['down', 'up'];
+  document.getElementById('evtDown').checked     = events.includes('down');
+  document.getElementById('evtDegraded').checked = events.includes('degraded');
+  document.getElementById('evtUp').checked       = events.includes('up');
+  const msg = document.getElementById('webhookMsg');
+  msg.className = 'modal-msg'; msg.textContent = '';
+  document.getElementById('webhookModal').classList.add('open');
+}
+
+function closeWebhookModal() {
+  document.getElementById('webhookModal').classList.remove('open');
+}
+
+async function doSaveWebhook() {
+  const id     = document.getElementById('webhookEditId').value;
+  const name   = document.getElementById('webhookName').value.trim();
+  const url    = document.getElementById('webhookUrl').value.trim();
+  const events = ['down','degraded','up'].filter(e => document.getElementById(`evt${e[0].toUpperCase()+e.slice(1)}`).checked);
+  const msg    = document.getElementById('webhookMsg');
+  const btn    = document.getElementById('webhookSaveBtn');
+
+  msg.className = 'modal-msg';
+  if (!name) { msg.className = 'modal-msg error'; msg.textContent = 'Name is required.'; return; }
+  if (!url)  { msg.className = 'modal-msg error'; msg.textContent = 'URL is required.';  return; }
+  if (!events.length) { msg.className = 'modal-msg error'; msg.textContent = 'Select at least one event.'; return; }
+
+  btn.disabled = true;
+  try {
+    const endpoint = id ? `/api/alerts/webhooks/${id}` : '/api/alerts/webhooks';
+    const method   = id ? 'PUT' : 'POST';
+    const res = await fetch(endpoint, { method, headers: authHeaders(), body: JSON.stringify({ name, url, events }) });
+    const data = await res.json();
+    if (!res.ok) { msg.className = 'modal-msg error'; msg.textContent = data.error || 'Failed to save.'; }
+    else { closeWebhookModal(); await fetchAlerts(); }
+  } catch {
+    msg.className = 'modal-msg error'; msg.textContent = 'Could not reach server.';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function toggleWebhook(id, enabled) {
+  try {
+    await fetch(`/api/alerts/webhooks/${id}`, { method: 'PUT', headers: authHeaders(), body: JSON.stringify({ enabled }) });
+    await fetchAlerts();
+  } catch {}
+}
+
+async function testWebhook(id) {
+  showInfoToast('Sending test alert…', true);
+  try {
+    const res  = await fetch(`/api/alerts/test/${id}`, { method: 'POST', headers: authHeaders() });
+    const data = await res.json();
+    showInfoToast(res.ok ? 'Test alert sent' : (data.message || 'Test failed'), res.ok);
+  } catch {
+    showInfoToast('Test failed — could not reach server', false);
+  }
+}
+
+async function deleteWebhook(id, name) {
+  if (!confirm(`Delete webhook "${name}"?`)) return;
+  try {
+    const res = await fetch(`/api/alerts/webhooks/${id}`, { method: 'DELETE', headers: authHeaders() });
+    if (res.ok) await fetchAlerts();
+  } catch {}
+}
+
+function showInfoToast(message, ok = true) {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = `<span>${ok ? '✅' : '❌'}</span> ${message}`;
+  document.getElementById('toastContainer').appendChild(el);
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 320); }, 3500);
 }
 
 // ─── SORT ─────────────────────────────────────────────────────────────────────

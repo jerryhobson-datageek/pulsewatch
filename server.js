@@ -293,6 +293,105 @@ async function runSSLCheck(svc) {
   }
 }
 
+// ── Alerts ────────────────────────────────────────────────────────────────────
+
+const alertCooldowns = new Map(); // svcId -> { status, ts }
+
+function shouldAlert(svcId, newStatus) {
+  const cooldown = (loadConfig().alerts?.cooldownSeconds ?? 300) * 1000;
+  const last = alertCooldowns.get(svcId);
+  if (!last) return true;
+  if (last.status !== newStatus) return true;
+  return Date.now() - last.ts > cooldown;
+}
+
+function recordAlert(svcId, status) {
+  alertCooldowns.set(svcId, { status, ts: Date.now() });
+}
+
+function sendWebhook(webhookUrl, payload) {
+  return new Promise((resolve) => {
+    let parsed;
+    try { parsed = new URL(webhookUrl); } catch { return resolve(false); }
+    const body = JSON.stringify(payload);
+    const lib  = parsed.protocol === 'https:' ? https : http;
+    const req  = lib.request(
+      {
+        hostname: parsed.hostname,
+        port:     parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+        path:     parsed.pathname + parsed.search,
+        method:   'POST',
+        timeout:  10000,
+        headers:  { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), 'User-Agent': 'PulseWatch/1.0' },
+      },
+      (res) => { res.resume(); resolve(res.statusCode >= 200 && res.statusCode < 300); }
+    );
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+    req.on('error',   () => resolve(false));
+    req.write(body);
+    req.end();
+  });
+}
+
+function buildWebhookPayload(webhookUrl, svc, status, isTest = false) {
+  const icons  = { up: '✅', down: '🔴', degraded: '⚠️' };
+  const labels = { up: 'Recovered', down: 'DOWN', degraded: 'Degraded' };
+  const prefix = isTest ? '[TEST] ' : '';
+  const title  = `${prefix}${icons[status] || '?'} ${svc.name} is ${labels[status] || status}`;
+
+  if (webhookUrl.includes('discord.com/api/webhooks')) {
+    const colors = { up: 0x22d3a0, down: 0xf43f5e, degraded: 0xf59e0b };
+    return {
+      embeds: [{
+        title,
+        color:  colors[status] || 0x64748b,
+        fields: [
+          { name: 'URL',           value: svc.url,                           inline: true },
+          { name: 'Response Time', value: svc.rt != null ? `${svc.rt} ms` : '—', inline: true },
+        ],
+        timestamp: new Date().toISOString(),
+        footer:    { text: 'PulseWatch' },
+      }],
+    };
+  }
+
+  // Generic / Slack-compatible
+  const slackColors = { up: 'good', down: 'danger', degraded: 'warning' };
+  return {
+    text: title,
+    attachments: [{
+      color:  slackColors[status] || '#64748b',
+      fields: [
+        { title: 'URL',           value: svc.url,                           short: true },
+        { title: 'Response Time', value: svc.rt != null ? `${svc.rt} ms` : '—', short: true },
+      ],
+      ts:     Math.floor(Date.now() / 1000),
+      footer: 'PulseWatch',
+    }],
+    service:   svc.name,
+    status,
+    url:       svc.url,
+    rt:        svc.rt ?? null,
+    timestamp: new Date().toISOString(),
+  };
+}
+
+async function fireAlerts(svc, newStatus) {
+  const cfg = loadConfig();
+  const webhooks = cfg.alerts?.webhooks || [];
+  if (!webhooks.length) return;
+  if (!shouldAlert(svc.id, newStatus)) return;
+  recordAlert(svc.id, newStatus);
+
+  for (const wh of webhooks) {
+    if (!wh.enabled || !wh.url) continue;
+    if (!(wh.events || ['down', 'up']).includes(newStatus)) continue;
+    const payload = buildWebhookPayload(wh.url, svc, newStatus);
+    const ok = await sendWebhook(wh.url, payload);
+    console.log(`[Alert] Webhook "${wh.name}" → ${newStatus} for ${svc.name}: ${ok ? 'OK' : 'FAILED'}`);
+  }
+}
+
 // ── Checkers ──────────────────────────────────────────────────────────────────
 
 function checkHTTP(svc) {
@@ -380,7 +479,7 @@ async function runCheck(svc) {
   const u24 = stmtUptime24h.get(svc.id, ts - 86_400_000);
   d.uptime24h = u24.total ? parseFloat((u24.upCount / u24.total * 100).toFixed(2)) : null;
 
-  // Incident tracking (ignore maintenance transitions)
+  // Incident tracking + alerts (ignore maintenance transitions)
   const isOutage = s => s === 'down' || s === 'degraded';
   if (prevStatus !== 'pending' && prevStatus !== result.status && result.status !== 'maintenance' && prevStatus !== 'maintenance') {
     if (isOutage(result.status) && !isOutage(prevStatus)) {
@@ -393,6 +492,7 @@ async function runCheck(svc) {
       d.openIncidentId    = null;
       d.openIncidentStart = null;
     }
+    fireAlerts(svc, result.status).catch(err => console.error('[Alert] Error:', err.message));
   }
 
   const icon = result.status === 'up' ? '✓' : result.status === 'maintenance' ? '🔧' : result.status === 'degraded' ? '⚠' : '✗';
@@ -670,6 +770,82 @@ const server = http.createServer(async (req, res) => {
 
     console.log(`[Services] Deleted: ${svc.name} (id=${id}) by ${session.username}`);
     return json(res, 200, { ok: true });
+  }
+
+  // ── GET /api/alerts ───────────────────────────────────────────────────────
+  if (pathname === '/api/alerts' && req.method === 'GET') {
+    const session = requireAuth(req, res, 'admin');
+    if (!session) return;
+    config = loadConfig();
+    return json(res, 200, { alerts: config.alerts || { cooldownSeconds: 300, webhooks: [] } });
+  }
+
+  // ── POST /api/alerts/webhooks — add ───────────────────────────────────────
+  if (pathname === '/api/alerts/webhooks' && req.method === 'POST') {
+    const session = requireAuth(req, res, 'admin');
+    if (!session) return;
+    let body;
+    try { body = JSON.parse(await readBody(req)); }
+    catch { return json(res, 400, { error: 'Invalid JSON' }); }
+    const { name, url, events = ['down', 'up'] } = body;
+    if (!name || !url) return json(res, 400, { error: 'name and url are required' });
+    config = loadConfig();
+    if (!config.alerts) config.alerts = { cooldownSeconds: 300, webhooks: [] };
+    if (!config.alerts.webhooks) config.alerts.webhooks = [];
+    const wh = { id: generateId(), name: name.trim(), url: url.trim(), enabled: true, events };
+    config.alerts.webhooks.push(wh);
+    saveConfig(config);
+    console.log(`[Alerts] Webhook added: "${wh.name}" by ${session.username}`);
+    return json(res, 201, { webhook: wh });
+  }
+
+  // ── PUT /api/alerts/webhooks/:id — update ─────────────────────────────────
+  if (pathname.startsWith('/api/alerts/webhooks/') && req.method === 'PUT') {
+    const session = requireAuth(req, res, 'admin');
+    if (!session) return;
+    const id = pathname.slice('/api/alerts/webhooks/'.length);
+    let body;
+    try { body = JSON.parse(await readBody(req)); }
+    catch { return json(res, 400, { error: 'Invalid JSON' }); }
+    config = loadConfig();
+    const wh = (config.alerts?.webhooks || []).find(w => w.id === id);
+    if (!wh) return json(res, 404, { error: 'Webhook not found' });
+    if (body.name    !== undefined) wh.name    = String(body.name).trim();
+    if (body.url     !== undefined) wh.url     = String(body.url).trim();
+    if (body.enabled !== undefined) wh.enabled = Boolean(body.enabled);
+    if (body.events  !== undefined) wh.events  = body.events;
+    saveConfig(config);
+    return json(res, 200, { webhook: wh });
+  }
+
+  // ── DELETE /api/alerts/webhooks/:id ───────────────────────────────────────
+  if (pathname.startsWith('/api/alerts/webhooks/') && req.method === 'DELETE') {
+    const session = requireAuth(req, res, 'admin');
+    if (!session) return;
+    const id = pathname.slice('/api/alerts/webhooks/'.length);
+    config = loadConfig();
+    const idx = (config.alerts?.webhooks || []).findIndex(w => w.id === id);
+    if (idx === -1) return json(res, 404, { error: 'Webhook not found' });
+    const name = config.alerts.webhooks[idx].name;
+    config.alerts.webhooks.splice(idx, 1);
+    saveConfig(config);
+    console.log(`[Alerts] Webhook deleted: "${name}" by ${session.username}`);
+    return json(res, 200, { ok: true });
+  }
+
+  // ── POST /api/alerts/test/:id ─────────────────────────────────────────────
+  if (pathname.startsWith('/api/alerts/test/') && req.method === 'POST') {
+    const session = requireAuth(req, res, 'admin');
+    if (!session) return;
+    const id = pathname.slice('/api/alerts/test/'.length);
+    config = loadConfig();
+    const wh = (config.alerts?.webhooks || []).find(w => w.id === id);
+    if (!wh) return json(res, 404, { error: 'Webhook not found' });
+    const testSvc = { name: 'PulseWatch', url: `http://localhost:${PORT}`, rt: 42 };
+    const payload = buildWebhookPayload(wh.url, testSvc, 'down', true);
+    const ok = await sendWebhook(wh.url, payload);
+    console.log(`[Alerts] Test webhook "${wh.name}": ${ok ? 'OK' : 'FAILED'}`);
+    return json(res, ok ? 200 : 502, { ok, message: ok ? 'Test alert sent' : 'Webhook delivery failed — check the URL' });
   }
 
   // ── GET /api/incidents ────────────────────────────────────────────────────
