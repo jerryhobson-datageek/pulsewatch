@@ -19,6 +19,7 @@ A self-hosted uptime and status dashboard. Monitor HTTP and TCP services with li
 - **Maintenance windows** — schedule downtime per service to suppress alerts
 - **Dark / light theme** — toggleable, preference saved in `localStorage`
 - **Admin / viewer roles** — admins can add, edit, delete services, schedule maintenance, and manage webhooks
+- **Public status page** — shareable `/status` page, no login required
 - **No npm dependencies** — Node.js stdlib + built-in `node:sqlite` only
 
 ## Screenshots
@@ -34,6 +35,10 @@ A self-hosted uptime and status dashboard. Monitor HTTP and TCP services with li
 **Incident log**
 
 ![Incident log](docs/screenshots/incident_log.png)
+
+**Public status page** (`/status` — no login required)
+
+![Public status page](docs/screenshots/public_status.png)
 
 ## Tech stack
 
@@ -106,6 +111,14 @@ Services can be managed through the Admin UI (Services section on the dashboard)
 | `degradedThreshold` | No | RT in ms above which status turns yellow |
 | `timeout` | No | Request timeout in ms (default: 5000) |
 | `sslCheck` | No | Set `false` to disable SSL tracking for an HTTPS service |
+
+## Public status page
+
+A read-only status page is available at `/status` with no login required — safe to share with users or embed as a link in your app.
+
+It shows the overall system status (All Systems Operational / Partial Outage / etc.), each service with its current status and 24h uptime %, and auto-refreshes every 30 seconds. Respects the visitor's system dark/light preference.
+
+The underlying data is served from `GET /api/public/status` which also requires no authentication.
 
 ## Webhook alerting
 
