@@ -1,0 +1,13 @@
+services:
+  pulsewatch:
+    build: .
+    container_name: pulsewatch
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/data
+    cap_add:
+      - NET_RAW   # required for PING checks
+    environment:
+      - PORT=3000

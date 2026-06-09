@@ -67,7 +67,22 @@ maintenance.json  Maintenance window state
 history.db        SQLite — check history + incident log (30-day rolling)
 ```
 
-## Quick start
+## Docker
+
+```bash
+# Clone and start
+git clone https://github.com/jerryhobson-datageek/plusewatch.git
+cd plusewatch
+docker compose up -d
+```
+
+Runtime data (`config.json`, `maintenance.json`, `history.db`) is stored in `./data/` on the host and persists across container rebuilds.
+
+Open `http://localhost:3000`. Default credentials: `admin / admin123` — change immediately.
+
+> **PING checks** require the `NET_RAW` capability, which is included in `docker-compose.yml`. If you run the container manually add `--cap-add NET_RAW`.
+
+## Quick start (without Docker)
 
 ### Requirements
 

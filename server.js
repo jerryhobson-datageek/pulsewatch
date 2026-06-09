@@ -14,8 +14,21 @@ const { execFile }          = require('child_process');
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-const CONFIG_PATH      = path.join(__dirname, 'config.json');
-const MAINTENANCE_PATH = path.join(__dirname, 'maintenance.json');
+// DATA_DIR allows runtime files (config, db) to live outside the app directory
+// — useful for Docker volumes. Defaults to __dirname for non-container deploys.
+const DATA_DIR         = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : __dirname;
+const CONFIG_PATH      = path.join(DATA_DIR, 'config.json');
+const MAINTENANCE_PATH = path.join(DATA_DIR, 'maintenance.json');
+
+function ensureConfig() {
+  if (fs.existsSync(CONFIG_PATH)) return;
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify({
+    port: 3000, interval: 30, alertThreshold: 1, services: [],
+  }, null, 2));
+  console.log(`[Config] Created default config at ${CONFIG_PATH}`);
+}
+ensureConfig();
 
 function loadConfig() {
   return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
@@ -36,7 +49,7 @@ const SSL_CRITICAL_DAYS= config.sslCriticalDays ?? 7;
 
 // ── SQLite history ────────────────────────────────────────────────────────────
 
-const DB_PATH     = path.join(__dirname, 'history.db');
+const DB_PATH     = path.join(DATA_DIR, 'history.db');
 const HISTORY_DAYS = 30;
 
 const db = new DatabaseSync(DB_PATH);
