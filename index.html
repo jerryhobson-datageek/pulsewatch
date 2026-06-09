@@ -1616,22 +1616,9 @@
     </div>
   </div>
 
-  <!-- Section header -->
-  <div class="section-header">
-    <div class="section-title">Monitors</div>
-    <div class="sort-controls">
-      <button class="sort-btn active" onclick="setSort('status')">Status</button>
-      <button class="sort-btn" onclick="setSort('name')">Name</button>
-      <button class="sort-btn" onclick="setSort('rt')">Response</button>
-    </div>
-  </div>
-
-  <!-- Monitor Cards Grid -->
-  <div class="monitors-grid" id="monitorsGrid"></div>
-
   <!-- Server Stats -->
-  <div class="sysinfo-section">
-    <div class="section-header" style="margin-top:2rem">
+  <div class="sysinfo-section" style="margin-bottom:2rem">
+    <div class="section-header">
       <div class="section-title">Server</div>
     </div>
     <div class="sysinfo-grid">
@@ -1673,6 +1660,19 @@
       </div>
     </div>
   </div>
+
+  <!-- Section header -->
+  <div class="section-header">
+    <div class="section-title">Monitors</div>
+    <div class="sort-controls">
+      <button class="sort-btn active" onclick="setSort('status')">Status</button>
+      <button class="sort-btn" onclick="setSort('name')">Name</button>
+      <button class="sort-btn" onclick="setSort('rt')">Response</button>
+    </div>
+  </div>
+
+  <!-- Monitor Cards Grid -->
+  <div class="monitors-grid" id="monitorsGrid"></div>
 
   <!-- Service Management (admin only) -->
   <div class="maint-section admin-only" id="servicesSection">
