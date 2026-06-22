@@ -18,7 +18,7 @@ A self-hosted uptime and status dashboard. Monitor HTTP, TCP, and PING services 
 - **Webhook alerting** — Discord / Slack / generic webhooks on down, degraded, and recovery events
 - **Maintenance windows** — schedule downtime per service to suppress alerts
 - **Dark / light theme** — toggleable, preference saved in `localStorage`
-- **Admin / viewer roles** — admins can add, edit, delete services, schedule maintenance, and manage webhooks
+- **Admin / viewer roles** — admins can add, edit, delete services, schedule maintenance, manage webhooks, and manage user accounts
 - **Public status page** — shareable `/status` page, no login required
 - **No npm dependencies** — Node.js stdlib + built-in `node:sqlite` only
 
@@ -199,6 +199,19 @@ Discord webhook URLs (`discord.com/api/webhooks/…`) automatically receive rich
 
 By default PulseWatch alerts on the first failure. To require N consecutive failures before alerting (avoiding false positives from transient blips), set **Alert after N failures** when adding or editing a service in the admin UI. The card will show a dimmed `1/3` → `2/3` counter while below the threshold.
 
+## User management
+
+![Users section](docs/screenshots/users_section.png)
+
+Admins can manage accounts from the **Users** section on the dashboard, no SSH required.
+
+![Add user modal](docs/screenshots/add_user_modal.png)
+
+- **Add a user** — click **＋ Add User**, set a username, password (min. 8 characters), and role (`admin` or `viewer`)
+- **Change a role** — click the role toggle on a user's row to flip between admin and viewer
+- **Remove a user** — click **Delete** on their row; their active sessions are invalidated immediately
+- Admins cannot change their own role or remove their own account, to prevent accidental lockout
+
 ## API
 
 | Method | Path | Auth | Description |
@@ -223,6 +236,10 @@ By default PulseWatch alerts on the first failure. To require N consecutive fail
 | `DELETE` | `/api/alerts/webhooks/:id` | admin | Remove a webhook |
 | `POST` | `/api/alerts/test/:id` | admin | Send a test notification |
 | `POST` | `/api/change-password` | any | Change own password |
+| `GET` | `/api/users` | admin | List users |
+| `POST` | `/api/users` | admin | Add a user |
+| `PATCH` | `/api/users/:username` | admin | Change a user's role |
+| `DELETE` | `/api/users/:username` | admin | Remove a user |
 
 ## Service management
 

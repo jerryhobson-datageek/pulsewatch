@@ -185,6 +185,10 @@ function requireAuth(req, res, role = null) {
   return session;
 }
 
+function publicUser(c) {
+  return { username: c.username, role: c.role, createdAt: c.createdAt || null };
+}
+
 // ── Default credentials (first run) ──────────────────────────────────────────
 
 function ensureCredentials() {
@@ -980,6 +984,80 @@ const server = http.createServer(async (req, res) => {
     }
 
     console.log(`[Auth] Password changed: ${session.username}`);
+    return json(res, 200, { ok: true });
+  }
+
+  // ── GET /api/users (admin) ────────────────────────────────────────────────
+  if (pathname === '/api/users' && req.method === 'GET') {
+    const session = requireAuth(req, res, 'admin');
+    if (!session) return;
+    config = loadConfig();
+    return json(res, 200, { users: (config.credentials || []).map(publicUser) });
+  }
+
+  // ── POST /api/users (admin) — add user ────────────────────────────────────
+  if (pathname === '/api/users' && req.method === 'POST') {
+    const session = requireAuth(req, res, 'admin');
+    if (!session) return;
+    let body;
+    try { body = JSON.parse(await readBody(req)); }
+    catch { return json(res, 400, { error: 'Invalid JSON' }); }
+
+    const { username, password, role } = body;
+    if (!username || username.trim().length < 3) return json(res, 400, { error: 'Username must be at least 3 characters' });
+    if (!password || password.length < 8) return json(res, 400, { error: 'Password must be at least 8 characters' });
+    if (role !== 'admin' && role !== 'viewer') return json(res, 400, { error: 'Role must be admin or viewer' });
+
+    const uname = username.trim().toLowerCase();
+    config = loadConfig();
+    if (!config.credentials) config.credentials = [];
+    if (config.credentials.some(c => c.username === uname)) return json(res, 409, { error: 'Username already exists' });
+
+    const salt = crypto.randomBytes(16).toString('hex');
+    const user = { username: uname, role, salt, hash: hashPassword(password, salt), createdAt: new Date().toISOString() };
+    config.credentials.push(user);
+    saveConfig(config);
+    console.log(`[Auth] User added: ${uname} (${role}) by ${session.username}`);
+    return json(res, 201, { user: publicUser(user) });
+  }
+
+  // ── PATCH /api/users/:username (admin) — change role ──────────────────────
+  if (pathname.startsWith('/api/users/') && req.method === 'PATCH') {
+    const session = requireAuth(req, res, 'admin');
+    if (!session) return;
+    const uname = decodeURIComponent(pathname.slice('/api/users/'.length));
+    if (uname === session.username) return json(res, 400, { error: 'Cannot change your own role' });
+    let body;
+    try { body = JSON.parse(await readBody(req)); }
+    catch { return json(res, 400, { error: 'Invalid JSON' }); }
+    if (body.role !== 'admin' && body.role !== 'viewer') return json(res, 400, { error: 'Role must be admin or viewer' });
+
+    config = loadConfig();
+    const cred = (config.credentials || []).find(c => c.username === uname);
+    if (!cred) return json(res, 404, { error: 'User not found' });
+    cred.role = body.role;
+    saveConfig(config);
+
+    for (const [, s] of sessions) if (s.username === uname) s.role = body.role;
+    console.log(`[Auth] Role changed: ${uname} → ${body.role} by ${session.username}`);
+    return json(res, 200, { user: publicUser(cred) });
+  }
+
+  // ── DELETE /api/users/:username (admin) ────────────────────────────────────
+  if (pathname.startsWith('/api/users/') && req.method === 'DELETE') {
+    const session = requireAuth(req, res, 'admin');
+    if (!session) return;
+    const uname = decodeURIComponent(pathname.slice('/api/users/'.length));
+    if (uname === session.username) return json(res, 400, { error: 'Cannot remove your own account' });
+
+    config = loadConfig();
+    const idx = (config.credentials || []).findIndex(c => c.username === uname);
+    if (idx === -1) return json(res, 404, { error: 'User not found' });
+    config.credentials.splice(idx, 1);
+    saveConfig(config);
+
+    for (const [t, s] of sessions) if (s.username === uname) sessions.delete(t);
+    console.log(`[Auth] User removed: ${uname} by ${session.username}`);
     return json(res, 200, { ok: true });
   }
 

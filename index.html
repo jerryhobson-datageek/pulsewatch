@@ -1565,6 +1565,33 @@
   </div>
 </div>
 
+<!-- ADD USER MODAL -->
+<div class="modal-overlay" id="userModal">
+  <div class="modal" style="max-width:440px">
+    <h2>＋ Add User</h2>
+    <div class="login-field">
+      <label>Username</label>
+      <input type="text" id="userUsername" placeholder="e.g. jsmith" />
+    </div>
+    <div class="login-field">
+      <label>Password</label>
+      <input type="password" id="userPassword" placeholder="Min 8 characters" />
+    </div>
+    <div class="login-field">
+      <label>Role</label>
+      <select id="userRole" style="background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:0.9rem;outline:none;width:100%;font-family:inherit">
+        <option value="viewer">Viewer</option>
+        <option value="admin">Admin</option>
+      </select>
+    </div>
+    <div class="modal-msg" id="userMsg"></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeUserModal()">Cancel</button>
+      <button class="btn-primary" id="userSaveBtn" onclick="doSaveUser()">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- HEADER -->
 <header>
   <div class="logo">
@@ -1586,6 +1613,7 @@
       <span class="role-chip" id="roleChip"></span>
       <div class="user-menu" id="userMenu">
         <button class="user-menu-item" onclick="openPwModal(); event.stopPropagation()">🔑 Change Password</button>
+        <button class="user-menu-item admin-only" onclick="document.getElementById('usersSection').scrollIntoView({behavior:'smooth'}); closeUserMenu(); event.stopPropagation()">👥 Manage Users</button>
         <div class="menu-divider"></div>
         <button class="user-menu-item danger" onclick="doLogout()">↩ Sign Out</button>
       </div>
@@ -1708,6 +1736,15 @@
     <div class="maint-windows" id="webhooksList"></div>
   </div>
 
+  <!-- Users (admin only) -->
+  <div class="maint-section admin-only" id="usersSection">
+    <div class="section-header">
+      <div class="section-title">Users</div>
+      <button class="add-maint-btn" onclick="openUserModal()">＋ Add User</button>
+    </div>
+    <div class="maint-windows" id="usersList"></div>
+  </div>
+
   <!-- Incident Log -->
   <div class="incident-section">
     <div class="section-header" style="margin-top:2rem">
@@ -1814,6 +1851,7 @@ async function doLogin() {
     fetchServicesList();
     fetchIncidents();
     fetchAlerts();
+    if (currentUser.role === 'admin') fetchUsers();
   } catch {
     showLoginError('Could not reach server.');
   } finally {
@@ -1846,6 +1884,7 @@ async function checkAuth() {
     fetchServicesList();
     fetchIncidents();
     fetchAlerts();
+    if (currentUser.role === 'admin') fetchUsers();
   } catch {
     showLogin();
   }
@@ -2993,6 +3032,94 @@ async function deleteWebhook(id, name) {
   try {
     const res = await fetch(`/api/alerts/webhooks/${id}`, { method: 'DELETE', headers: authHeaders() });
     if (res.ok) await fetchAlerts();
+  } catch {}
+}
+
+// ─── USERS (admin) ──────────────────────────────────────────────────────────
+
+let usersCache = [];
+
+async function fetchUsers() {
+  try {
+    const res = await fetch('/api/users', { headers: authHeaders() });
+    if (!res.ok) return;
+    usersCache = (await res.json()).users || [];
+    renderUsers();
+  } catch {}
+}
+
+function renderUsers() {
+  const list = document.getElementById('usersList');
+  if (!usersCache.length) {
+    list.innerHTML = `<div class="incident-item"><span style="color:var(--muted);font-size:0.8rem">No users yet.</span></div>`;
+    return;
+  }
+  list.innerHTML = usersCache.map(u => {
+    const isSelf = u.username === currentUser?.username;
+    return `<div class="webhook-row">
+      <div class="webhook-info">
+        <div class="webhook-name">${u.username}${isSelf ? ' (you)' : ''}</div>
+        <div class="webhook-meta"><span class="role-chip role-${u.role}">${u.role}</span></div>
+      </div>
+      <div class="webhook-actions">
+        ${isSelf ? '' : `
+          <button class="wh-toggle ${u.role === 'admin' ? 'enabled' : ''}" onclick="changeUserRole('${u.username}','${u.role === 'admin' ? 'viewer' : 'admin'}')">${u.role === 'admin' ? 'Admin' : 'Viewer'}</button>
+          <button class="svc-btn svc-btn-delete" onclick="deleteUser('${u.username}')">Delete</button>
+        `}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function openUserModal() {
+  document.getElementById('userUsername').value = '';
+  document.getElementById('userPassword').value = '';
+  document.getElementById('userRole').value = 'viewer';
+  const msg = document.getElementById('userMsg');
+  msg.className = 'modal-msg'; msg.textContent = '';
+  document.getElementById('userModal').classList.add('open');
+}
+
+function closeUserModal() {
+  document.getElementById('userModal').classList.remove('open');
+}
+
+async function doSaveUser() {
+  const username = document.getElementById('userUsername').value.trim();
+  const password = document.getElementById('userPassword').value;
+  const role     = document.getElementById('userRole').value;
+  const msg = document.getElementById('userMsg');
+  const btn = document.getElementById('userSaveBtn');
+
+  msg.className = 'modal-msg';
+  if (username.length < 3) { msg.className = 'modal-msg error'; msg.textContent = 'Username must be at least 3 characters.'; return; }
+  if (password.length < 8) { msg.className = 'modal-msg error'; msg.textContent = 'Password must be at least 8 characters.'; return; }
+
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/users', { method: 'POST', headers: authHeaders(), body: JSON.stringify({ username, password, role }) });
+    const data = await res.json();
+    if (!res.ok) { msg.className = 'modal-msg error'; msg.textContent = data.error || 'Failed to save.'; }
+    else { closeUserModal(); await fetchUsers(); }
+  } catch {
+    msg.className = 'modal-msg error'; msg.textContent = 'Could not reach server.';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function changeUserRole(username, role) {
+  try {
+    const res = await fetch(`/api/users/${encodeURIComponent(username)}`, { method: 'PATCH', headers: authHeaders(), body: JSON.stringify({ role }) });
+    if (res.ok) await fetchUsers();
+  } catch {}
+}
+
+async function deleteUser(username) {
+  if (!confirm(`Remove user "${username}"?`)) return;
+  try {
+    const res = await fetch(`/api/users/${encodeURIComponent(username)}`, { method: 'DELETE', headers: authHeaders() });
+    if (res.ok) await fetchUsers();
   } catch {}
 }
 
