@@ -57,10 +57,56 @@ ssh -i /c/Users/jerry/.ssh/id_rsa root@2.24.107.27 "systemctl restart pulsewatch
 ## Services monitored by PulseWatch
 | Name | URL | Notes |
 |---|---|---|
-| Nginx Proxy Manager | https://proxy.newtekk.com | Reverse proxy for all services |
+| Nginx Proxy Manager | https://proxymanager.newtekk.com | Reverse proxy for all services |
 | Portainer | https://docker.newtekk.com | Docker management UI |
 | WireGuard Easy | https://vpn.newtekk.com | VPN |
-| PulseWatch | http://localhost:3000 | Self-monitoring |
+| PulseWatch | https://plusewatch.newtekk.com | Self-monitoring |
+| Cloudflare DNS | 1.1.1.1 | TCP, 60s interval |
+| Google DNS | 8.8.8.8 | PING |
+| Field2Base Admin Portal | admin.field2base.com | PING, 120s interval |
+| F2B Admin Portal | https://admin.field2base.com/Portal/Account/Login | HTTP, 120s interval |
+| F2B Dev Portal | https://dev.field2base.com | HTTP, 120s interval |
+| SecureScout | https://security.newtekk.com | HTTP |
+| NewTekk Auth | https://auth.newtekk.com | HTTP |
+
+## NewTekk Auth
+Centralised JWT authentication server for all NewTekk apps.
+
+- GitHub: https://github.com/jerryhobson-datageek/newtekk-auth.git
+- Local: `C:\newtekk-auth`
+- Branch: `master`
+- Public URL: **https://auth.newtekk.com** — NPM proxy host id 10, Let's Encrypt cert id 10
+- Port: `3003`
+
+### Server layout (VPS)
+| Path | Purpose |
+|---|---|
+| `/root/newtekk-auth/` | Git clone — pull updates here |
+| `/opt/newtekk-auth/` | Running copy |
+| `/etc/systemd/system/newtekk-auth.service` | Systemd unit file |
+
+### Deployment workflow
+```bash
+ssh -i /c/Users/jerry/.ssh/id_rsa root@2.24.107.27 "cd /root/newtekk-auth && git pull && cp server.js index.html /opt/newtekk-auth/ && systemctl restart newtekk-auth"
+```
+
+### Config files (do not overwrite on deploy)
+- `/opt/newtekk-auth/config.json` — port, JWT secret, expiry
+- `/opt/newtekk-auth/auth.db` — SQLite user database
+
+### API endpoints
+| Endpoint | Method | Description |
+|---|---|---|
+| `/register` | POST | Create account — returns JWT |
+| `/login` | POST | Sign in — returns JWT |
+| `/verify` | GET/POST | Validate a token (used by other apps) |
+| `/me` | GET | Return profile from Bearer token |
+
+### Tech stack
+- Node.js, stdlib only (no npm packages)
+- JWT HS256 signed with `node:crypto`
+- SQLite via `node:sqlite`
+- Passwords hashed with `scrypt`
 
 ## Docker containers on server
 | Container | Image | Ports |
