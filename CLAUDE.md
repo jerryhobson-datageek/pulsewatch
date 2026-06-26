@@ -15,6 +15,24 @@ PulseWatch is a self-hosted uptime/status dashboard. It monitors HTTP and TCP se
 - SSH: `ssh -i /c/Users/jerry/.ssh/id_rsa root@2.24.107.27`
 - SSH key: `C:\Users\jerry\.ssh\id_rsa`
 
+## Second server (claudeapps)
+- IP: `20.55.54.41`
+- Hostname: `claudeapps`
+- OS: Ubuntu 26.04 LTS (Resolute Raccoon)
+- User: `jerryhobson`
+- SSH: `ssh -i /c/Users/jerry/.ssh/id_ed25519_claudeapps jerryhobson@20.55.54.41`
+- SSH key: `C:\Users\jerry\.ssh\id_ed25519_claudeapps` (dedicated key, not shared with the Hostinger VPS)
+- Password auth disabled (key-only) since 2026-06-24
+- Purpose: hosting a test instance of SecureScout
+
+### SecureScout test instance (on claudeapps)
+- Repo clone: `~jerryhobson/securescout` (from https://github.com/jerryhobson-datageek/securescout.git)
+- Running copy: `/opt/securescout/` (server.js, index.html, config.json — config.json from config.sample.json, not synced from git)
+- Systemd service: `securescout.service`, runs as `www-data`, port 3002
+- Node.js 22 + npm installed via apt (the broken `/etc/apt/sources.list.d/microsoft-prod.list` repo was disabled — renamed to `.disabled` — to unblock `apt-get update`)
+- Public URL: **https://f2bsecure.newtekk.com** — proxied via NPM on the Hostinger VPS (proxy host id 9, forward_host `20.55.54.41:3002`, Let's Encrypt cert id 9, same security-header `advanced_config` convention as `security.newtekk.com`)
+- First-run admin account already completed by Jerry
+
 ## Server layout
 | Path | Purpose |
 |---|---|
