@@ -4,7 +4,7 @@
 PulseWatch is a self-hosted uptime/status dashboard. It monitors HTTP and TCP services and shows live status, response times, sparklines, and incident history. Single-page app: `index.html` (frontend) + `server.js` (Node.js backend).
 
 ## Repository
-- GitHub: https://github.com/jerryhobson-datageek/plusewatch.git
+- GitHub: https://github.com/jerryhobson-datageek/pulsewatch.git
 - Local: `C:\claudcode`
 - Branch: `main`
 
@@ -60,7 +60,7 @@ ssh -i /c/Users/jerry/.ssh/id_rsa root@2.24.107.27 "systemctl restart pulsewatch
 | Nginx Proxy Manager | https://proxymanager.newtekk.com | Reverse proxy for all services |
 | Portainer | https://docker.newtekk.com | Docker management UI |
 | WireGuard Easy | https://vpn.newtekk.com | VPN |
-| PulseWatch | https://plusewatch.newtekk.com | Self-monitoring |
+| PulseWatch | https://pulsewatch.newtekk.com | Self-monitoring |
 | Cloudflare DNS | 1.1.1.1 | TCP, 60s interval |
 | Google DNS | 8.8.8.8 | PING |
 | Field2Base Admin Portal | admin.field2base.com | PING, 120s interval |
