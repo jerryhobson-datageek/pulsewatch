@@ -136,12 +136,14 @@ ssh -i /c/Users/jerry/.ssh/id_rsa root@2.24.107.27 "cd /root/newtekk-auth && git
 - Passwords hashed with `scrypt`
 
 ## Docker containers on server
+Reinstalled 2026-07-06 after VPS rebuild — fresh installs, no config carried over except `portainer_data` volume (survived the rebuild).
+
 | Container | Image | Ports |
 |---|---|---|
-| proxy-app-1 | nginx-proxy-manager | 80/443 (admin: 81) |
-| portainer | portainer-ce | 9443 |
+| proxy-app-1 | jc21/nginx-proxy-manager:latest | 80, 443 (admin: 81) |
+| portainer | portainer/portainer-ce:lts | 8000, 9443 |
 | uptime-kuma | louislam/uptime-kuma:2 | 3001 |
-| wg-easy | wg-easy:15 | 51820/51821 |
+| wg-easy | ghcr.io/wg-easy/wg-easy:15 | 51820/udp, 51821/tcp — `WG_HOST=2.24.107.27` |
 
 ## Domain
 `newtekk.com` — subdomains routed through Nginx Proxy Manager on the VPS.
