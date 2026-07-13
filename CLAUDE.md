@@ -96,6 +96,7 @@ ssh -i /c/Users/jerry/.ssh/id_rsa root@2.24.107.27 "systemctl restart pulsewatch
 | SecureScout | https://security.newtekk.com | HTTP |
 | NewTekk Auth | https://auth.newtekk.com | HTTP |
 | NewTekk Manage | https://manage.newtekk.com | HTTP |
+| F2B VPN | https://f2bvpn.newtekk.com | HTTP — wg-easy admin UI on claudeapps |
 
 ## NewTekk Manage
 Customer portal for managing VPS servers, NewTekk apps, and billing.
