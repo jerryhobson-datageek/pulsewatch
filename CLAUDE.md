@@ -43,6 +43,7 @@ PulseWatch is a self-hosted uptime/status dashboard. It monitors HTTP and TCP se
 - Public admin URL: **https://f2bvpn.newtekk.com** — NPM proxy host id 12 on the Hostinger VPS, forward to `20.55.54.41:51821`, Websockets support on, own Let's Encrypt cert
 - Hit the same `ip_tables`/`ip6_tables`/`iptable_nat`/`ip6table_nat` kernel-module-not-loaded issue as [[project-wg-easy-netfilter]] on the Hostinger box (container showed `unhealthy`, `wg-quick up wg0` failed with `modprobe: FATAL: Module ip_tables not found`) — same fix applied: `/etc/modules-load.d/wireguard-netfilter.conf` listing all four modules
 - Deployed 2026-07-13, first-run admin account completed by Jerry
+- Also hit the NPM `add_header` inheritance bug (same as the 2026-07-09 security-headers fix) — wg-easy doesn't send its own security headers, so NPM's generated conf only carried HSTS through. Hand-patched `/var/lib/docker/volumes/npm_data/_data/nginx/proxy_host/12.conf` on the Hostinger VPS with the same header block as proxymanager/vpn/auth/docker (see `## Config files` note below and [[project-security-headers-fix]]) — grades **A** on SecureScout as of 2026-07-13. This is a 5th host with hand-patched, DB-unbacked headers; editing proxy host 12 via the NPM UI and clicking Save will wipe them out
 
 ### SecureScout test instance (on claudeapps)
 - Repo clone: `~jerryhobson/securescout` (from https://github.com/jerryhobson-datageek/securescout.git)
