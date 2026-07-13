@@ -16,14 +16,33 @@ PulseWatch is a self-hosted uptime/status dashboard. It monitors HTTP and TCP se
 - SSH key: `C:\Users\jerry\.ssh\id_rsa`
 
 ## Second server (claudeapps)
-- IP: `20.55.54.41`
+- IP: `20.55.54.41` — this is an Azure VM
 - Hostname: `claudeapps`
 - OS: Ubuntu 26.04 LTS (Resolute Raccoon)
 - User: `jerryhobson`
 - SSH: `ssh -i /c/Users/jerry/.ssh/id_ed25519_claudeapps jerryhobson@20.55.54.41`
 - SSH key: `C:\Users\jerry\.ssh\id_ed25519_claudeapps` (dedicated key, not shared with the Hostinger VPS)
 - Password auth disabled (key-only) since 2026-06-24
-- Purpose: hosting a test instance of SecureScout
+- Purpose: hosting test instances of SecureScout and PulseWatch, plus a second WireGuard VPN (wg-easy) and Tailscale exit node
+- Each new port used on this VM needs an inbound rule added on the Azure Network Security Group (scoped to the Hostinger VPS IP `2.24.107.27`) before NPM on the Hostinger box can reach it — local `ufw` is inactive, so a timeout from the Hostinger side when the app is confirmed listening locally points to the Azure NSG, not the app or NPM config
+- The `/etc/apt/sources.list.d/microsoft-prod.list` repo (unsigned, breaks `apt-get update`) has regenerated itself three times now after being disabled — 2026-06-24, 2026-07-13 02:40 UTC, 2026-07-13 14:40 UTC (exactly 12h apart — likely `ua-timer` or `update-notifier-download`, not confirmed). Currently disabled as `.disabled3`. Just re-disable (`mv` it away, then `apt-get update`) if `apt-get update` starts failing with a `NO_PUBKEY` error again
+- Docker installed 2026-07-13 via the `docker.io` apt package (matches how Docker was installed on the Hostinger VPS — not the docker-ce official repo)
+
+### Tailscale (on claudeapps)
+- Installed 2026-07-13 via the official apt repo (`pkgs.tailscale.com`)
+- Tailscale IP: `100.106.57.48`, hostname `claudeapps` on the tailnet
+- Configured and approved as an **exit node** — `net.ipv4.ip_forward` and `net.ipv6.conf.all.forwarding` enabled via `/etc/sysctl.d/99-tailscale.conf`, brought up with `tailscale up --advertise-exit-node --hostname=claudeapps`, approved by Jerry in the admin console (login.tailscale.com/admin/machines)
+- Other tailnet devices route through it with `tailscale set --exit-node=claudeapps`
+- The Hostinger VPS (`srv1681739`) is also already configured as an exit node on the same tailnet — two exit nodes available
+
+### wg-easy VPN — f2bvpn.newtekk.com (on claudeapps)
+- Second WireGuard instance, separate from `vpn.newtekk.com` which runs on the Hostinger VPS itself
+- Docker container `wg-easy`, image `ghcr.io/wg-easy/wg-easy:15` (same version as the Hostinger one), `--restart unless-stopped`, data volume `wg-easy-data`
+- `WG_HOST=20.55.54.41` (claudeapps' own public IP — VPN clients connect directly to this IP on port 51820, not through the domain, since `*.newtekk.com` DNS points at the Hostinger box)
+- Ports: `51820/udp` (WireGuard tunnel — Azure NSG rule scoped to **Any/Internet**, since real clients connect directly) and `51821/tcp` (admin UI — Azure NSG rule scoped to the Hostinger VPS IP `2.24.107.27` only, since it's reverse-proxied)
+- Public admin URL: **https://f2bvpn.newtekk.com** — NPM proxy host id 12 on the Hostinger VPS, forward to `20.55.54.41:51821`, Websockets support on, own Let's Encrypt cert
+- Hit the same `ip_tables`/`ip6_tables`/`iptable_nat`/`ip6table_nat` kernel-module-not-loaded issue as [[project-wg-easy-netfilter]] on the Hostinger box (container showed `unhealthy`, `wg-quick up wg0` failed with `modprobe: FATAL: Module ip_tables not found`) — same fix applied: `/etc/modules-load.d/wireguard-netfilter.conf` listing all four modules
+- Deployed 2026-07-13, first-run admin account not yet created — complete that via the web UI before sharing the link
 
 ### SecureScout test instance (on claudeapps)
 - Repo clone: `~jerryhobson/securescout` (from https://github.com/jerryhobson-datageek/securescout.git)
@@ -32,6 +51,14 @@ PulseWatch is a self-hosted uptime/status dashboard. It monitors HTTP and TCP se
 - Node.js 22 + npm installed via apt (the broken `/etc/apt/sources.list.d/microsoft-prod.list` repo was disabled — renamed to `.disabled` — to unblock `apt-get update`)
 - Public URL: **https://f2bsecure.newtekk.com** — proxied via NPM on the Hostinger VPS (proxy host id 9, forward_host `20.55.54.41:3002`, Let's Encrypt cert id 9, same security-header `advanced_config` convention as `security.newtekk.com`)
 - First-run admin account already completed by Jerry
+
+### PulseWatch test instance (on claudeapps)
+- Repo clone: `~jerryhobson/pulsewatch` (from https://github.com/jerryhobson-datageek/pulsewatch.git)
+- Running copy: `/opt/pulsewatch/` (server.js, index.html, public.html, config.json — config.json seeded manually with `port: 3005` and 3 sample services, not synced from git)
+- Systemd service: `pulsewatch.service`, runs as `www-data`, port 3005
+- Public URL: **https://f2bwatch.newtekk.com** — proxied via NPM on the Hostinger VPS. App sends its own security headers (HSTS/CSP/X-Frame-Options) via `server.js`, so no NPM conf hand-patching needed (unlike the bare apps in the security-headers fix)
+- First-run admin account still default (`admin/admin123`, `viewer/viewer123`) — change after first login
+- Deployed 2026-07-10
 
 ## Server layout
 | Path | Purpose |
